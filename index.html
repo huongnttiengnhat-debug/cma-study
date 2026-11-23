@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1F4E79">
+<meta name="description" content="Học tiếng Anh kế toán và luyện thi CMA Part 1, chạy offline">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="CMA Study">
+<title>CMA Study</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <button class="iconbtn" id="backBtn" aria-label="Quay lại" hidden>‹</button>
+  <h1 id="title">CMA Study</h1>
+  <button class="iconbtn" id="stopBtn" aria-label="Dừng đọc" title="Dừng đọc">■</button>
+</header>
+<main id="view" tabindex="-1"></main>
+<nav class="tabs" aria-label="Điều hướng chính">
+  <a href="#/" data-tab="home"><span>🏠</span>Trang chủ</a>
+  <a href="#/english" data-tab="english"><span>🔤</span>Tiếng Anh</a>
+  <a href="#/know" data-tab="know"><span>📘</span>Kiến thức</a>
+  <a href="#/exam" data-tab="exam"><span>📝</span>Luyện thi</a>
+  <a href="#/cfo" data-tab="cfo"><span>💼</span>CFO</a>
+  <a href="#/data" data-tab="data"><span>⚙️</span>Dữ liệu</a>
+</nav>
+<div id="toast" role="status" aria-live="polite"></div>
+<div id="update" hidden>Có phiên bản mới. <button id="reloadBtn">Tải lại</button></div>
+<script src="lib/xlsx.mini.min.js" defer></script>
+<script src="app.js" defer></script>
+</body>
+</html>
