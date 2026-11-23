@@ -1,17 +1,52 @@
 /* CMA Study – PWA học tiếng Anh kế toán và luyện thi CMA Part 1.
    Không cần build. Dữ liệu: data/public.json (nội dung tự soạn) + file Excel người dùng nhập (lưu IndexedDB). */
 'use strict';
-const APP_VERSION = '1.0.0';
-const TYPES = ['vocab', 'los', 'sentences', 'mcq', 'cbq', 'cfo'];
-const TYPE_VI = { vocab: 'Từ vựng', los: 'LOS', sentences: 'Câu song ngữ', mcq: 'Câu MCQ', cbq: 'Câu CBQ', cfo: 'Mẫu câu CFO' };
+const APP_VERSION = '1.1.0';
+const TYPES = ['vocab', 'los', 'sentences', 'mcq', 'cbq', 'cfo', 'glossary'];
+const TYPE_VI = { vocab: 'Từ vựng', los: 'LOS', sentences: 'Câu song ngữ', mcq: 'Câu MCQ', cbq: 'Câu CBQ', cfo: 'Mẫu câu CFO', glossary: 'Từ điển chung' };
 const KEY = {
   vocab: r => r.id, los: r => r.los, sentences: r => r.id, mcq: r => r.id,
-  cbq: r => r.case_id + '#' + r.q_no, cfo: r => r.id
+  cbq: r => r.case_id + '#' + r.q_no, cfo: r => r.id, glossary: r => String(r.word).toLowerCase()
 };
 const REQUIRED = {
   vocab: ['term', 'vi_meaning'], los: ['los', 'title_en'], sentences: ['en', 'vi'],
-  mcq: ['question', 'A', 'B', 'answer'], cbq: ['case_id', 'question', 'A', 'B', 'answer'], cfo: ['phrase_en', 'phrase_vi']
+  mcq: ['question', 'A', 'B', 'answer'], cbq: ['case_id', 'question', 'A', 'B', 'answer'], cfo: ['phrase_en', 'phrase_vi'], glossary: ['word', 'vi']
 };
+/* Nhãn nguồn thống nhất (giai đoạn a) */
+const SRC = {
+  ima: ['IMA chính thức', 'ok'],
+  st: ['Tài liệu chị cung cấp', ''],
+  ai: ['AI biên soạn – cần xác minh', 'warn'],
+  sim: ['Câu mô phỏng – AI viết, cần xác minh', 'warn'],
+  me: ['Chị tự nhập', '']
+};
+const VI_LEVELS = { 1: 'Song ngữ', 2: 'Gợi ý', 3: 'Chỉ tiếng Anh' };
+const VI_LEVEL_NOTE = {
+  1: 'Bản dịch hiện ngay dưới câu hỏi, phương án và câu ví dụ.',
+  2: 'Chỉ hiện nghĩa các thuật ngữ khóa. Bấm "Xem tiếng Việt" khi cần bản dịch đầy đủ.',
+  3: 'Không hiện tiếng Việt. Chạm vào từ để xem nghĩa; bản dịch chỉ mở sau khi trả lời.'
+};
+/* Từ tín hiệu trong đề: neg = phủ định, key = so sánh/nhấn mạnh, cond = điều kiện */
+const SIG = {};
+'not except least incorrect false never neither nor unless cannot without no'.split(' ').forEach(w => SIG[w] = 'neg');
+'most best only respectively true primary primarily main greatest highest lowest likely always first'.split(' ').forEach(w => SIG[w] = 'key');
+'if assuming assume assumed given under according provided prior before after when whichever'.split(' ').forEach(w => SIG[w] = 'cond');
+const TRAPS = [
+  [/\b(except|not|incorrect|false|least|never)\b|n['’]t\b/i, 'Câu hỏi PHỦ ĐỊNH: tìm phương án SAI hoặc KHÔNG thuộc nhóm. Xét từng phương án "đúng hay sai", rồi chọn cái sai.'],
+  [/\brespectively\b/i, '"respectively" = lần lượt: đáp án ghép nhiều giá trị theo đúng thứ tự được hỏi. Kiểm tra cả thứ tự, không chỉ con số.'],
+  [/\b(most likely|least likely|best|most appropriate|primary|primarily|main|greatest)\b/i, 'Câu hỏi "phù hợp NHẤT": có thể nhiều phương án đúng một phần. Chọn phương án đầy đủ và trực tiếp nhất.'],
+  [/(^|\n)\s*(I|II|III|IV)\.\s/, 'Dạng tổ hợp I, II, III: đánh giá từng mệnh đề Đúng/Sai trước, rồi mới chọn tổ hợp.'],
+  [/\bU\.?S\.? GAAP\b[\s\S]*\bIFRS\b|\bIFRS\b[\s\S]*\bU\.?S\.? GAAP\b/i, 'So sánh U.S. GAAP và IFRS: mỗi vế của phương án phải đúng với chuẩn mực tương ứng.'],
+  [/\b(under|according to|in accordance with) (the )?(U\.?S\.? GAAP|IFRS)\b/i, 'Câu chỉ định chuẩn mực: trả lời theo đúng chuẩn mực được nêu, vì US GAAP và IFRS có thể khác nhau.'],
+  [/\bnet of tax\b|\bafter[- ]tax\b|\bpretax\b|\bbefore[- ]tax\b|\btax rate\b/i, 'Có yếu tố thuế: xác định số liệu trước thuế hay sau thuế trước khi tính.'],
+  [/\bFact Pattern\b/i, 'Câu thuộc chùm tình huống (Fact Pattern): dữ liệu dùng chung cho nhiều câu, nhưng mỗi câu chỉ hỏi một phần.'],
+  [/\b(assum(e|ed|ing)|if)\b/i, 'Có giả định ("assuming"/"if"): áp dụng đúng giả định đó, kể cả khi khác thực tế hoặc khác câu trước.'],
+  [/\bYear \d+\b[\s\S]*\bYear \d+\b/i, 'Có nhiều năm: xác định năm được hỏi (Year 1, Year 2…) và chỉ lấy số liệu của năm đó.'],
+  [/\b(indirect|direct) method\b/i, 'Chú ý phương pháp lập báo cáo lưu chuyển tiền tệ được chỉ định (trực tiếp hay gián tiếp).'],
+  [/\b(FIFO|LIFO|first-in|last-in|weighted[- ]average|moving[- ]average|periodic|perpetual)\b/i, 'Chú ý phương pháp tính giá và hệ thống tồn kho được chỉ định (FIFO/LIFO/bình quân; định kỳ hay kê khai thường xuyên).'],
+  [/\b(cumulative|to date)\b/i, 'Phân biệt số LŨY KẾ (cumulative/to date) với số phát sinh trong kỳ.'],
+  [/\bcash\b[\s\S]*\b(income|revenue|expense)\b|\b(income|revenue|expense)\b[\s\S]*\bcash\b/i, 'Câu có cả "cash" và "income/revenue/expense": phân biệt số tiền thu/chi với số ghi nhận theo dồn tích.']
+];
 const BOX_DAYS = [0, 1, 2, 4, 7, 14];
 const COVER_CLASS = { 'Đủ': 'ok', 'Một phần': 'warn', 'Thiếu': 'bad', 'Lệch': 'bad' };
 
@@ -20,8 +55,12 @@ const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const view = () => $('#view');
-function spk(text) {
-  return String(text ?? '').split(/([A-Za-z][A-Za-z'’-]*)/).map((t, i) => i % 2 ? `<span class="w">${esc(t)}</span>` : esc(t)).join('');
+function spk(text, hl) {
+  return String(text ?? '').split(/([A-Za-z][A-Za-z'’-]*)/).map((t, i) => {
+    if (!(i % 2)) return esc(t);
+    const s = hl && (SIG[t.toLowerCase()] || (/n['’]t$/i.test(t) ? 'neg' : ''));
+    return `<span class="w${s ? ' sig-' + s : ''}">${esc(t)}</span>`;
+  }).join('');
 }
 function sayBtns(text, label) {
   const t = esc(text);
@@ -40,11 +79,24 @@ function toast(msg, ms = 2600) { const t = $('#toast'); t.innerHTML = msg; t.cla
 function losName(code) { const l = S.byLos[code]; return l ? `${code.replace(/^1\./, '')} · ${l.title_vi || l.title_en}` : code; }
 function shortLos(code) { return String(code || '').replace(/^1\./, ''); }
 function coverPill(c) { return c ? `<span class="pill ${COVER_CLASS[c] || ''}">${esc(c)}</span>` : ''; }
-function srcPill(src) {
-  if (!src) return '';
-  const warn = /cần đối chiếu/i.test(src);
-  return `<span class="pill ${warn ? 'warn' : ''}" title="Nguồn">${esc(src)}</span>`;
+function srcType(r, kind) {
+  let t = r && r.source_type && SRC[r.source_type] ? r.source_type : '';
+  if (!t) {
+    const s = String(r?.source || '');
+    if (/tài liệu chị cung cấp|smart ?train|gleim/i.test(s)) t = 'st';
+    else if (/^IMA LOS/i.test(s)) t = 'ima';
+    else if (/soạn bổ sung|cần đối chiếu|\bAI\b/i.test(s)) t = 'ai';
+    else t = r && r._src === 'imp' ? 'me' : 'ai';
+  }
+  if (t === 'ai' && (kind === 'mcq' || kind === 'cbq')) t = 'sim';
+  return t;
 }
+function srcPill(r, kind) {
+  if (!r) return '';
+  const [label, cls] = SRC[srcType(r, kind)];
+  return `<span class="pill ${cls}" title="${esc(r.source || label)}">${esc(label)}</span>`;
+}
+function aiPill(text = 'AI dịch – cần xác minh') { return `<span class="pill warn">${esc(text)}</span>`; }
 
 /* ---------- storage (IndexedDB, fallback memory) ---------- */
 const store = (() => {
@@ -73,9 +125,9 @@ const store = (() => {
 
 /* ---------- state ---------- */
 const S = {
-  pub: null, imp: {}, data: {}, byId: {}, byLos: {}, termMap: {},
-  prog: { srs: {}, mcq: {}, dict: {}, cbq: {}, newDay: { d: '', n: 0 }, log: {} },
-  settings: { rate: 0.95, slow: 0.65, voice: '', examDate: '2027-05-01', newPerDay: 10, autoSpeak: true, theme: '', showVi: true }
+  pub: null, imp: {}, data: {}, byId: {}, byLos: {}, termMap: {}, terms: [], gloss: {},
+  prog: { srs: {}, mcq: {}, dict: {}, cbq: {}, newDay: { d: '', n: 0 }, log: {}, tr: {}, explain: {}, viStat: {} },
+  settings: { rate: 0.95, slow: 0.65, voice: '', examDate: '2027-05-01', newPerDay: 10, autoSpeak: true, theme: '', showVi: true, viLevel: 0 }
 };
 let saveTimer;
 function saveProg() { clearTimeout(saveTimer); saveTimer = setTimeout(() => store.set('prog', S.prog), 300); }
@@ -92,8 +144,156 @@ function rebuild() {
     S.byId[t] = Object.fromEntries(S.data[t].map(r => [KEY[t](r), r]));
   }
   S.byLos = S.byId.los;
-  S.termMap = {};
-  for (const v of S.data.vocab) S.termMap[String(v.term).toLowerCase()] = v;
+  S.gloss = S.byId.glossary || {};
+  S.termMap = {}; S.terms = [];
+  const seen = new Set();
+  for (const v of S.data.vocab) {
+    S.termMap[String(v.term).toLowerCase()] = v;
+    for (const a of termAliases(v.term)) {
+      const k = a.toLowerCase().replace(/-/g, ' ');
+      if (!S.termMap[k]) S.termMap[k] = v;
+      if (!S.termMap[a.toLowerCase()]) S.termMap[a.toLowerCase()] = v;
+      if (seen.has(a + '|' + v.id)) continue; seen.add(a + '|' + v.id);
+      S.terms.push({ a, v, re: termRe(a) });
+    }
+  }
+  S.terms.sort((x, y) => y.a.length - x.a.length);
+}
+
+/* ---------- tra thuật ngữ trong câu ---------- */
+function termAliases(term) {
+  const t = String(term || '').trim(); if (!t) return [];
+  const out = new Set();
+  const base = t.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
+  if (base) out.add(base);
+  for (const m of t.matchAll(/\(([^)]+)\)/g)) { const ab = m[1].trim(); if (/^[A-Z][A-Za-z&/]{1,7}$/.test(ab)) out.add(ab); }
+  if (/ \/ /.test(base)) base.split(' / ').map(x => x.trim()).filter(x => x.length > 2).forEach(x => out.add(x));
+  return [...out].filter(a => !/ \/ /.test(a));
+}
+function termRe(a) {
+  const cs = /[A-Z]/.test(a) && a === a.toUpperCase();
+  let s = a.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/[- ]+/g, '[\\s-]+');
+  s = s.replace(/^US(?=\[)/i, 'U\\.?S\\.?');
+  if (/[a-z]y$/i.test(a) && !cs) s = s.slice(0, -1) + '(?:y|ies)'; else s += "(?:s|es|['’]s)?";
+  return new RegExp('(^|[^A-Za-z])(' + s + ')(?![A-Za-z])', cs ? 'g' : 'gi');
+}
+/* Tìm thuật ngữ (từ vựng) xuất hiện trong đoạn văn: ưu tiên cụm dài, không trùng vị trí */
+function findTerms(text) {
+  const t = String(text || ''); const taken = []; const hits = new Map();
+  for (const { v, re } of S.terms) {
+    re.lastIndex = 0; let m;
+    while ((m = re.exec(t))) {
+      const st = m.index + m[1].length, en = st + m[2].length;
+      if (!taken.some(([a, b]) => st < b && en > a)) { taken.push([st, en]); if (!hits.has(v.id) || hits.get(v.id).p > st) hits.set(v.id, { v, p: st }); }
+      if (m[0].length === 0) re.lastIndex++;
+    }
+  }
+  return [...hits.values()].sort((a, b) => a.p - b.p).map(h => h.v);
+}
+function termHit(v, text) { return S.terms.some(x => x.v === v && (x.re.lastIndex = 0, x.re.test(text))); }
+function lemmas(w) {
+  w = w.toLowerCase().replace(/’/g, "'");
+  const c = [w, w.replace(/'s$/, ''), w.replace(/s'$/, ''), w.replace(/ies$/, 'y'), w.replace(/es$/, ''), w.replace(/s$/, ''), w.replace(/ied$/, 'y'),
+    w.replace(/ed$/, ''), w.replace(/d$/, ''), w.replace(/(.)\1ed$/, '$1'), w.replace(/ing$/, ''), w.replace(/ing$/, 'e'), w.replace(/(.)\1ing$/, '$1'),
+    w.replace(/ily$/, 'y'), w.replace(/ly$/, ''), w.replace(/er$/, ''), w.replace(/est$/, '')];
+  return [...new Set(c)].filter(x => x.length > 1);
+}
+function vocabLookup(phrase) {
+  const p = phrase.toLowerCase().replace(/’/g, "'").replace(/-/g, ' ');
+  for (const c of [p, p.replace(/'s$/, ''), p.replace(/ies$/, 'y'), p.replace(/es$/, ''), p.replace(/s$/, '')]) if (S.termMap[c]) return S.termMap[c];
+  return null;
+}
+/* Chạm vào một từ: ưu tiên cụm thuật ngữ nhiều từ quanh vị trí chạm, sau đó tới từ đơn, rồi từ điển chung */
+function lookupWord(el) {
+  const word = el.textContent;
+  const sib = el.parentElement ? [...el.parentElement.children].filter(e => e.classList.contains('w')) : [el];
+  const i = sib.indexOf(el);
+  if (i >= 0) for (let len = Math.min(6, sib.length); len >= 2; len--) {
+    for (let st = Math.max(0, i - len + 1); st <= i && st + len <= sib.length; st++) {
+      const v = vocabLookup(sib.slice(st, st + len).map(e => e.textContent).join(' '));
+      if (v) return { v };
+    }
+  }
+  for (const c of lemmas(word)) { const v = S.termMap[c]; if (v) return { v }; }
+  if (/^[A-Z]{2,}s?$/.test(word)) { const v = S.termMap[word.replace(/s$/, '').toLowerCase()]; if (v) return { v }; }
+  for (const c of lemmas(word)) { const g = S.gloss[c]; if (g) return { g }; }
+  return null;
+}
+
+/* ---------- mức hiển thị tiếng Việt ---------- */
+function viLv() { const l = +S.settings.viLevel; return l >= 1 && l <= 3 ? l : 1; }
+function setViLevel(l) { S.settings.viLevel = l; S.settings.showVi = l === 1; saveSettings(); toast(`Mức ${l} – ${VI_LEVELS[l]}: ${VI_LEVEL_NOTE[l]}`, 4000); }
+function viCtl() {
+  const lv = viLv();
+  return `<div class="seg vilv" role="group" aria-label="Mức hiển thị tiếng Việt"><span class="small muted" style="align-self:center;flex:0 0 auto">Tiếng Việt:</span>${[1, 2, 3].map(l => `<button type="button" data-vilv="${l}" class="${lv === l ? 'on' : ''}">${l}. ${VI_LEVELS[l]}</button>`).join('')}</div>`;
+}
+function viRecord(ok) { const l = viLv(); const s = S.prog.viStat[l] = S.prog.viStat[l] || { n: 0, c: 0 }; s.n++; if (ok) s.c++; }
+function viSuggest() {
+  const l = viLv(); if (l >= 3) return '';
+  const s = S.prog.viStat[l]; if (!s || s.n < 150 || pct(s.c, s.n) < 70) return '';
+  return `<div class="note">Chị đã làm ${s.n} câu ở mức "${VI_LEVELS[l]}", đúng ${pct(s.c, s.n)}%. Có thể chuyển lên mức ${l + 1} – ${VI_LEVELS[l + 1]} để quen đọc đề tiếng Anh. <button type="button" class="say" data-vilv="${l + 1}">Chuyển lên mức ${l + 1}</button></div>`;
+}
+function viBlock(text, after) {
+  if (!text) return '';
+  const lv = viLv();
+  if (lv === 1) return `<p class="vi">${esc(text)}</p>`;
+  if (lv === 2 || after) return `<details class="vi-more"><summary>Xem tiếng Việt</summary><p class="vi">${esc(text)}</p></details>`;
+  return '';
+}
+function hasVi(x) { return !!(x && typeof x.question_vi === 'string' && x.question_vi.trim()); }
+function optVi(x, k) { const v = String(x[k + '_vi'] ?? '').trim(); return v && v !== String(x[k]).trim() ? v : ''; }
+function trBlock(x, opts) {
+  if (!hasVi(x)) return `<p class="small muted">Câu này chưa có bản dịch.${x._src === 'imp' ? ' Nhập lại file <b>CMA_data_private.xlsx</b> bản mới ở mục Dữ liệu để có bản dịch (tiến độ giữ nguyên).' : ''}</p>`;
+  return `<div class="trb"><div class="row small">${aiPill()}</div><p class="vi q">${esc(x.question_vi)}</p>${opts.map(k => { const v = optVi(x, k); return v ? `<p class="vi small q"><b>${k}.</b> ${esc(v)}</p>` : ''; }).join('')}</div>`;
+}
+function termChips(terms) {
+  return terms.length ? `<div class="chips">${terms.slice(0, 10).map(v => `<span class="chip"><b>${esc(v.term)}</b> ${esc(v.vi_meaning)}</span>`).join('')}</div>` : '';
+}
+function mainQuestion(t) {
+  const lines = String(t || '').split(/\n+/).map(s => s.trim()).filter(Boolean);
+  const rev = lines.slice().reverse();
+  const line = rev.find(s => /\?\s*$/.test(s)) || rev.find(s => !/\S {3,}\S|\$\s*[\d,.]+\s*$|^[\d$,.()%\s-]+$/.test(s)) || lines[lines.length - 1] || '';
+  const ss = splitSent(line); return ss[ss.length - 1] || line;
+}
+let ddOpen = false;
+/* Bảng "Phân tích tiếng Anh" cho câu MCQ/CBQ */
+function deepDive(x, opts, answered) {
+  const q = String(x.question || '');
+  const mq = mainQuestion(q);
+  const allOpt = opts.map(k => String(x[k] ?? '')).join('\n');
+  const traps = TRAPS.filter(([re]) => re.test(q)).map(([, n]) => n);
+  if (/\S {3,}\S/.test(q) || /\n.*\$/.test(q)) traps.push('Câu có bảng số liệu: xác định đơn vị (USD, nghìn, triệu), cột năm/kỳ và dòng cần dùng trước khi tính.');
+  if (/\S \| \S/.test(allOpt)) traps.push('Mỗi phương án có nhiều vế (ngăn bởi dấu |): xét từng vế theo đúng thứ tự cột trong câu hỏi; sai một vế là loại cả phương án.');
+  if (opts.some(k => /^(yes|no)\b/i.test(String(x[k] ?? '').trim()))) traps.push('Phương án dạng Yes/No: trả lời riêng từng ý được hỏi rồi mới ghép lại.');
+  const terms = findTerms(q + '\n' + allOpt);
+  const lv = viLv();
+  return `<details class="card dd" id="dd" ${ddOpen ? 'open' : ''}><summary>🔍 Phân tích tiếng Anh</summary>
+    <h4>1. Câu hỏi chính</h4>
+    ${mq && mq.length < q.trim().length - 3 ? `<p class="en">${spk(mq, true)} ${sayBtns(mq)}</p>` : ''}
+    <p class="small muted">Mẹo: đọc câu hỏi chính (thường là câu cuối) trước, rồi mới đọc dữ liệu, để biết cần tìm gì.</p>
+    <h4>2. Bẫy cần để ý</h4>
+    ${traps.length ? `<ul class="small traps">${traps.map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : '<p class="small muted">Không thấy dấu hiệu bẫy thường gặp. Vẫn đọc kỹ từng phương án.</p>'}
+    <p class="small">Màu trong câu hỏi: <span class="sig-neg">phủ định</span> · <span class="sig-key">nhấn mạnh, so sánh</span> · <span class="sig-cond">điều kiện, giả định</span></p>
+    <h4>3. Thuật ngữ trong câu (${terms.length})</h4>
+    ${terms.length ? `<ul class="terms">${terms.map(v => `<li><span style="flex:1"><a href="#/english/word/${encodeURIComponent(v.id)}"><b>${esc(v.term)}</b></a> <span class="ipa small">${esc(v.ipa)}</span><br>${esc(v.vi_meaning)}${v.en_def ? `<br><small class="muted">${esc(v.en_def)}</small>` : ''}</span>${sayBtns(v.term)}</li>`).join('')}</ul>` : '<p class="small muted">Không có thuật ngữ nào trong danh sách từ vựng.</p>'}
+    <h4>4. Bản dịch</h4>
+    ${lv === 3 && !answered ? '<p class="small muted">Mức 3 (Chỉ tiếng Anh): bản dịch mở sau khi chị trả lời.</p>' : trBlock(x, opts)}
+  </details>`;
+}
+function bindDeepDive() {
+  const d = $('#dd'); if (d) d.ontoggle = () => { ddOpen = d.open; };
+  const b = $('#showTr'); if (b) b.onclick = () => { const box = $('#trBox'); box.hidden = !box.hidden; b.textContent = box.hidden ? 'Xem tiếng Việt' : 'Ẩn tiếng Việt'; };
+}
+/* Phần tiếng Việt ngay dưới câu hỏi, theo mức 1/2/3 */
+function qViPart(x, opts) {
+  const lv = viLv();
+  if (lv === 1) return hasVi(x) ? `<p class="vi q qvi">${esc(x.question_vi)} ${aiPill()}</p>` : '';
+  if (lv === 2) return `${termChips(findTerms(x.question + '\n' + opts.map(k => x[k]).join('\n')))}<button type="button" id="showTr" class="say">Xem tiếng Việt</button><div id="trBox" hidden>${trBlock(x, opts)}</div>`;
+  return '';
+}
+function optHtml(x, k, cls, withVi) {
+  const v = withVi && viLv() === 1 ? optVi(x, k) : '';
+  return `<button class="opt ${cls}" data-k="${k}"><b>${k}.</b><span>${esc(x[k])}${v ? `<span class="ovi">${esc(v)}</span>` : ''}</span></button>`;
 }
 
 /* ---------- speech ---------- */
@@ -164,6 +364,8 @@ let current = '';
 function route() {
   if (!S.pub) return; // dữ liệu chưa tải xong, boot() sẽ gọi lại
   TTS.stop();
+  if (onLeave) { try { onLeave(); } catch (e) { } onLeave = null; }
+  $('#toast').classList.remove('show');
   const h = location.hash.slice(1) || '/';
   const [path, qs] = h.split('?');
   const q = Object.fromEntries(new URLSearchParams(qs || ''));
@@ -219,6 +421,8 @@ on(/^\/$/, () => {
     <a class="tile" href="#/exam/mcq?mode=random&n=10"><b>10 câu MCQ</b><small>Đã làm ${att} lượt, đúng ${pct(cor, att)}%</small></a>
     <a class="tile" href="#/english/dict"><b>Nghe – chép 5 câu</b><small>Luyện nghe và chính tả</small></a>
     <a class="tile" href="#/english/read"><b>Đọc song ngữ</b><small>${new Set(S.data.sentences.map(s => s.passage_id)).size} đoạn văn</small></a>
+    <a class="tile" href="#/english/translate"><b>Dịch 10 câu</b><small>Luyện dịch Anh ↔ Việt</small></a>
+    <a class="tile" href="#/english/explain"><b>Nói 30 giây</b><small>Giải thích một thuật ngữ</small></a>
   </div>
   <h3>Chủ đề yếu</h3>
   <div class="card">${weak.length ? `<ul class="list">${weak.map(w => `<li><a href="#/exam/mcq?los=${encodeURIComponent(w.los)}"><span class="pill bad">${w.acc}%</span><span>${esc(losName(w.los))}</span></a></li>`).join('')}</ul>`
@@ -244,7 +448,11 @@ on(/^\/english$/, () => {
     <a class="tile" href="#/english/read"><b>📖 Đọc song ngữ</b><small>Từ → câu → đoạn</small></a>
     <a class="tile" href="#/english/dict"><b>✍️ Nghe – chép</b><small>Nghe rồi gõ lại</small></a>
     <a class="tile" href="#/english/speak"><b>🎙 Nói theo</b><small>Nghe mẫu, ghi âm, so sánh</small></a>
+    <a class="tile" href="#/english/translate"><b>🔁 Luyện dịch</b><small>Anh → Việt và Việt → Anh</small></a>
+    <a class="tile" href="#/english/explain"><b>🗣 Giải thích 30 giây</b><small>Nói về một thuật ngữ bằng tiếng Anh</small></a>
+    <a class="tile" href="#/english/glossary"><b>📚 Từ điển</b><small>${S.data.vocab.length} thuật ngữ + ${S.data.glossary.length} từ chung trong đề</small></a>
   </div>
+  ${viCtl()}
   <h3>Từ vựng theo chủ đề</h3>
   <div class="card"><ul class="list">${Object.entries(tp).map(([k, list]) => {
     const learned = list.filter(v => S.prog.srs[v.id] && S.prog.srs[v.id].b >= 3).length;
@@ -277,18 +485,21 @@ function cardBack(v) {
     <div class="row"><span class="ipa">${esc(v.ipa)}</span><span class="pill">${esc(v.word_type)}</span>${sayBtns(v.term)}</div>
     <p style="font-size:20px;font-weight:650;margin-top:10px">${esc(v.vi_meaning)}</p>
     ${v.vi_avoid ? `<p class="small muted">Tránh dịch: ${esc(v.vi_avoid)}</p>` : ''}
+    ${v.en_def ? `<h3>Định nghĩa tiếng Anh đơn giản</h3><p class="en">${spk(v.en_def)} ${sayBtns(v.en_def)}</p>` : ''}
+    ${v.confusable ? `<p class="small"><span class="pill warn">Dễ nhầm</span> ${esc(v.confusable)}</p>` : ''}
     <h3>Trong đề thi CMA</h3>
     <p class="en">${spk(v.exam_example_en)} ${sayBtns(v.exam_example_en)}</p>
-    ${S.settings.showVi ? `<p class="vi">${esc(v.exam_example_vi)}</p>` : ''}
+    ${viBlock(v.exam_example_vi, true)}
     <h3>Trong công việc CFO</h3>
     <p class="en">${spk(v.cfo_example_en)} ${sayBtns(v.cfo_example_en)}</p>
-    ${S.settings.showVi ? `<p class="vi">${esc(v.cfo_example_vi)}</p>` : ''}
-    <div class="row small" style="margin-top:10px">${v.los && v.los !== 'general' ? `<a href="#/know/${encodeURIComponent(v.los)}" class="pill">${esc(shortLos(v.los))}</a>` : ''}<span class="pill">${esc(v.topic)}</span>${srcPill(v.source)}</div>`;
+    ${viBlock(v.cfo_example_vi, true)}
+    <div class="row small" style="margin-top:10px">${v.los && v.los !== 'general' ? `<a href="#/know/${encodeURIComponent(v.los)}" class="pill">${esc(shortLos(v.los))}</a>` : ''}<span class="pill">${esc(v.topic)}</span>${srcPill(v)}</div>`;
 }
 on(/^\/english\/word\/(.+)$/, ([id]) => {
   const v = S.byId.vocab[id]; if (!v) return render('<p>Không tìm thấy từ.</p>');
   setTitle(v.term);
-  render(`<div class="card">${cardBack(v)}</div>`);
+  render(`<div class="card">${cardBack(v)}</div>
+  <div class="row"><a class="btn" href="#/english/explain?id=${encodeURIComponent(v.id)}">🗣 Giải thích từ này trong 30 giây</a><a class="btn" href="#/english/glossary?q=${encodeURIComponent(v.term.replace(/\s*\(.*$/, ''))}">📚 Tìm trong từ điển</a></div>`);
   if (S.settings.autoSpeak) TTS.speak(v.term);
 });
 
@@ -363,14 +574,16 @@ on(/^\/english\/read$/, () => {
 on(/^\/english\/read\/(.+)$/, ([pid]) => {
   const p = passages().find(x => x.id === pid); if (!p) return render('<p>Không tìm thấy đoạn văn.</p>');
   setTitle(p.title);
+  const lv = viLv();
   render(`
   <div class="row" style="margin-bottom:12px">
     <button class="primary" id="playAll">▶ Đọc cả đoạn</button><button id="playSlow">🐢 Đọc chậm</button>
-    <label class="row small"><input type="checkbox" id="showVi" ${S.settings.showVi ? 'checked' : ''}> Hiện tiếng Việt</label>
   </div>
+  ${viCtl()}
   <div class="card" id="sents">${p.sents.map((s, i) => `
-    <div class="sent" data-i="${i}"><div class="en">${spk(s.en)} ${sayBtns(s.en)}</div><div class="vi" ${S.settings.showVi ? '' : 'hidden'}>${esc(s.vi)}</div></div>`).join('')}
+    <div class="sent" data-i="${i}"><div class="en">${spk(s.en)} ${sayBtns(s.en)}${lv === 2 ? `<button type="button" class="say viT" aria-label="Xem nghĩa câu này">VI</button>` : ''}</div><div class="vi" ${lv === 1 ? '' : 'hidden'}>${esc(s.vi)}</div></div>`).join('')}
   </div>
+  ${lv === 3 ? '<div class="row" style="margin-bottom:12px"><button id="allVi">Đọc xong – hiện bản dịch cả đoạn</button></div>' : ''}
   <div class="row"><a class="btn" href="#/english/dict?src=passage&id=${encodeURIComponent(p.id)}">✍️ Nghe – chép đoạn này</a><a class="btn" href="#/english/speak?src=passage&id=${encodeURIComponent(p.id)}">🎙 Nói theo đoạn này</a>
   ${S.byLos[p.los] ? `<a class="btn" href="#/know/${encodeURIComponent(p.los)}">📘 LOS ${esc(shortLos(p.los))}</a>` : ''}</div>`);
   const play = slow => TTS.queue(p.sents.map(s => s.en), {
@@ -378,7 +591,8 @@ on(/^\/english\/read\/(.+)$/, ([pid]) => {
   });
   $('#playAll').onclick = () => play(false);
   $('#playSlow').onclick = () => play(true);
-  $('#showVi').onchange = e => { S.settings.showVi = e.target.checked; saveSettings(); $$('#sents .vi').forEach(el => el.hidden = !e.target.checked); };
+  $$('.viT').forEach(b => b.onclick = () => { const el = $('.vi', b.closest('.sent')); el.hidden = !el.hidden; });
+  const allVi = $('#allVi'); if (allVi) allVi.onclick = () => $$('#sents .vi').forEach(el => { el.hidden = false; });
   logStudy('read'); saveProg();
 });
 
@@ -482,6 +696,221 @@ on(/^\/english\/speak$/, (_, q) => {
   });
 });
 
+/* Từ điển: thuật ngữ CMA (vocab) + từ chung trong đề (glossary) */
+const SIG_VI = { neg: ['Phủ định', 'sig-neg'], key: ['Nhấn mạnh, so sánh', 'sig-key'], cond: ['Điều kiện, giả định', 'sig-cond'] };
+on(/^\/english\/glossary$/, (_, q) => {
+  setTitle('Từ điển');
+  const f = q.f || '';
+  const all = [
+    ...S.data.vocab.map(v => ({ k: 'cma', w: v.term, pos: v.word_type, vi: v.vi_meaning, def: v.en_def, ipa: v.ipa, id: v.id, conf: v.confusable })),
+    ...S.data.glossary.map(g => ({ k: 'gen', w: g.word, pos: g.pos, vi: g.vi, sig: SIG[String(g.word).toLowerCase()] }))
+  ];
+  const segs = [['', 'Tất cả'], ['cma', `Thuật ngữ CMA (${S.data.vocab.length})`], ['gen', `Từ chung (${S.data.glossary.length})`], ['sig', 'Từ tín hiệu trong đề']];
+  render(`
+  <div class="seg">${segs.map(([k, l]) => `<a href="#/english/glossary${k ? '?f=' + k : ''}" class="${f === k ? 'on' : ''}">${l}</a>`).join('')}</div>
+  <p class="small muted">Danh sách lấy từ chính các câu đề trong tool. Nghĩa tiếng Việt và định nghĩa tiếng Anh do AI biên soạn ${aiPill('cần xác minh')}. Chạm vào từ bất kỳ trong bài đọc hoặc câu hỏi cũng tra được ở đây.</p>
+  ${f === 'sig' ? `<div class="note small">Từ tín hiệu quyết định câu hỏi hỏi gì. Trong màn hình luyện thi (không tính giờ), các từ này được tô màu: <span class="sig-neg">phủ định</span>, <span class="sig-key">nhấn mạnh</span>, <span class="sig-cond">điều kiện</span>.</div>` : ''}
+  <input type="text" id="gq" placeholder="Gõ từ tiếng Anh hoặc nghĩa tiếng Việt…" value="${esc(q.q || '')}" style="width:100%;margin:10px 0 12px" autocapitalize="off" autocomplete="off" spellcheck="false">
+  <div class="card"><ul class="terms" id="gl"></ul><p class="small muted" id="glMore"></p></div>`);
+  const fold = t => String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd');
+  const draw = () => {
+    const s = fold($('#gq').value.trim());
+    let list = all.filter(r => !f || (f === 'sig' ? r.sig : r.k === f));
+    if (s) list = list.filter(r => fold(r.w).includes(s) || fold(r.vi).includes(s) || (r.def && fold(r.def).includes(s)))
+      .sort((a, b) => (fold(b.w).startsWith(s) - fold(a.w).startsWith(s)) || String(a.w).length - String(b.w).length);
+    else list.sort((a, b) => f === 'sig' ? (a.sig.localeCompare(b.sig) || a.w.localeCompare(b.w)) : String(a.w).toLowerCase().localeCompare(String(b.w).toLowerCase()));
+    const show = list.slice(0, 80);
+    $('#gl').innerHTML = show.map(r => `<li><span style="flex:1">${r.k === 'cma' ? `<a href="#/english/word/${encodeURIComponent(r.id)}"><b>${esc(r.w)}</b></a> <span class="ipa small">${esc(r.ipa)}</span>` : `<b>${esc(r.w)}</b>`}
+      <span class="pill">${esc(r.pos)}</span>${r.k === 'cma' ? ' <span class="pill ok">CMA</span>' : ''}${r.sig ? ` <span class="pill ${SIG_VI[r.sig][1]}">${SIG_VI[r.sig][0]}</span>` : ''}
+      <br>${esc(r.vi)}${r.def ? `<br><small class="muted">${esc(r.def)}</small>` : ''}${r.conf ? `<br><small>Dễ nhầm: ${esc(r.conf)}</small>` : ''}</span>${sayBtns(String(r.w).replace(/\s*\(.*$/, ''))}</li>`).join('') || '<li class="muted">Không tìm thấy. Thử gõ dạng gốc của từ (ví dụ "recognize" thay vì "recognized").</li>';
+    $('#glMore').textContent = list.length > show.length ? `Hiện ${show.length}/${list.length} mục. Gõ thêm để lọc.` : `${list.length} mục`;
+  };
+  $('#gq').oninput = draw; draw();
+});
+
+/* Luyện dịch Anh ↔ Việt */
+function vnorm(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/(\d)[.,](?=\d{3}\b)/g, '$1').replace(/[^a-z0-9%\s]/g, ' ').split(/\s+/).filter(Boolean); }
+function sylOverlap(model, said) {
+  const a = vnorm(model), bag = {}; vnorm(said).forEach(x => bag[x] = (bag[x] || 0) + 1);
+  let hit = 0; for (const x of a) if (bag[x] > 0) { hit++; bag[x]--; }
+  return pct(hit, a.length);
+}
+function viHit(v, said) {
+  const s = ' ' + vnorm(said).join(' ') + ' ';
+  return String(v.vi_meaning || '').split(/[,;/()]|\bhoặc\b/).map(x => vnorm(x).join(' ')).filter(x => x.length > 1).some(x => s.includes(' ' + x + ' '));
+}
+function trPool() {
+  const a = S.data.sentences.filter(s => s.en && s.vi).map(s => ({ id: 's:' + s.id, en: s.en, vi: s.vi, lvl: +s.level || 1 }));
+  const b = S.data.vocab.filter(v => v.exam_example_en && v.exam_example_vi).map(v => ({ id: 'v:' + v.id, en: v.exam_example_en, vi: v.exam_example_vi, lvl: 1 }));
+  return a.concat(b);
+}
+let trs = null;
+on(/^\/english\/translate$/, (_, q) => {
+  const dir = q.dir === 'vi' ? 'vi' : 'en';
+  const key = dir;
+  if (!trs || trs.key !== key) {
+    const pool = trPool();
+    const fresh = shuffle(pool.filter(p => !S.prog.tr[p.id + '|' + dir])), seen = shuffle(pool.filter(p => S.prog.tr[p.id + '|' + dir])).sort((x, y) => S.prog.tr[x.id + '|' + dir].best - S.prog.tr[y.id + '|' + dir].best);
+    trs = { key, dir, list: fresh.concat(seen).slice(0, 10), i: 0, scores: [] };
+  }
+  drawTr();
+});
+function drawTr() {
+  setTitle('Luyện dịch');
+  const dir = trs.dir;
+  const tabs = `<div class="seg"><a href="#/english/translate?dir=en" class="${dir === 'en' ? 'on' : ''}">Anh → Việt</a><a href="#/english/translate?dir=vi" class="${dir === 'vi' ? 'on' : ''}">Việt → Anh</a></div>`;
+  if (trs.i >= trs.list.length) {
+    const avg = trs.scores.length ? Math.round(trs.scores.reduce((a, b) => a + b, 0) / trs.scores.length) : 0;
+    render(`${tabs}<div class="card"><h2>Xong ${trs.list.length} câu</h2><p>Điểm máy chấm trung bình: <b>${avg}%</b></p>
+      <div class="row"><button class="primary" id="trAgain">Làm 10 câu khác</button><a class="btn" href="#/english">Về Tiếng Anh</a></div></div>`);
+    $('#trAgain').onclick = () => { trs = null; route(); }; return;
+  }
+  const s = trs.list[trs.i];
+  const src = dir === 'en' ? s.en : s.vi;
+  // chỉ yêu cầu thuật ngữ mà chính câu mẫu tiếng Việt cũng dùng đúng nghĩa đó (tránh chấm sai khi câu mẫu diễn đạt khác)
+  const terms = findTerms(s.en).filter(v => dir === 'vi' || viHit(v, s.vi));
+  render(`${tabs}
+  <p class="muted small">Câu ${trs.i + 1}/${trs.list.length}. ${dir === 'en' ? 'Dịch sang tiếng Việt, gõ có dấu hoặc không dấu đều được.' : 'Dịch sang tiếng Anh. Dùng đúng thuật ngữ kế toán.'}</p>
+  <div class="card">
+    ${dir === 'en' ? `<p class="en">${spk(src)} ${sayBtns(src)}</p>` : `<p style="font-size:17px">${esc(src)}</p>`}
+    ${dir === 'vi' && terms.length ? `<p class="small muted">Gợi ý thuật ngữ cần dùng: ${terms.map(v => `<span class="chip">${esc(v.vi_meaning)}</span>`).join(' ')}</p>` : ''}
+    <textarea id="trIn" placeholder="${dir === 'en' ? 'Gõ bản dịch tiếng Việt…' : 'Type your English translation…'}" ${dir === 'vi' ? 'autocapitalize="off" spellcheck="false"' : ''}></textarea>
+    <div class="row"><button class="primary" id="trCheck">Chấm</button><button id="trSkip">Bỏ qua, xem đáp án</button></div>
+    <div id="trRes"></div>
+  </div>
+  <p class="small muted">Giới hạn: máy chỉ so thuật ngữ bắt buộc và mức trùng từ với câu mẫu. Câu dịch diễn đạt khác vẫn có thể đúng, chị tự đánh giá thêm. Câu mẫu do AI biên soạn, cần xác minh.</p>`);
+  const check = skip => {
+    const said = $('#trIn').value.trim();
+    const hits = terms.map(v => ({ v, ok: !skip && (dir === 'en' ? viHit(v, said) : termHit(v, said)) }));
+    let ov, diff = '';
+    if (dir === 'en') ov = skip ? 0 : sylOverlap(s.vi, said);
+    else { const c = compare(s.en, skip ? '' : said); ov = c.score; diff = c.html; }
+    const score = skip ? 0 : hits.length ? Math.round(0.6 * ov + 0.4 * pct(hits.filter(h => h.ok).length, hits.length)) : ov;
+    trs.scores.push(score);
+    const k = s.id + '|' + dir; const r = S.prog.tr[k] = S.prog.tr[k] || { n: 0, best: 0 }; r.n++; r.best = Math.max(r.best, score);
+    logStudy('tr'); saveProg();
+    $('#trRes').innerHTML = `<h3>${skip ? 'Đáp án tham khảo' : `Máy chấm: ${score}%`}</h3>
+      ${hits.length ? `<p class="small">Thuật ngữ: ${hits.map(h => `<span class="pill ${h.ok ? 'ok' : 'bad'}">${h.ok ? '✓' : '✗'} ${esc(dir === 'en' ? h.v.vi_meaning : h.v.term)}</span>`).join(' ')}</p>` : ''}
+      ${!skip ? `<p class="small muted">Trùng với câu mẫu: ${ov}%</p>` : ''}
+      ${diff && !skip ? `<p class="diff">${diff}</p>` : ''}
+      <p class="en">${spk(s.en)} ${sayBtns(s.en)}</p><p class="vi">${esc(s.vi)}</p>
+      <div class="row small">${aiPill('Câu mẫu: AI biên soạn – cần xác minh')}</div>
+      <button class="primary" id="trNext" style="margin-top:8px">Câu tiếp ›</button>`;
+    $('#trCheck').disabled = true; $('#trSkip').disabled = true;
+    $('#trNext').onclick = () => { trs.i++; drawTr(); };
+  };
+  $('#trCheck').onclick = () => { if (!$('#trIn').value.trim()) { toast('Chị gõ bản dịch trước rồi bấm Chấm.'); return; } check(false); };
+  $('#trSkip').onclick = () => check(true);
+}
+
+/* Giải thích một thuật ngữ trong 30 giây */
+const STOP = new Set('that which with from when this have their there into over more than also they such other used uses using each what does some been being were will about after before under between where while your these those them then only must should would could shown shows show often usually because amount amounts'.split(' '));
+function defKeywords(v) {
+  const out = []; const seen = new Set();
+  for (const w of String(v.en_def || '').match(/[A-Za-z][A-Za-z'-]+/g) || []) {
+    const k = w.toLowerCase(); if (k.length < 4 || STOP.has(k) || seen.has(k)) continue; seen.add(k); out.push(w);
+  }
+  return out.slice(0, 6);
+}
+let onLeave = null;
+on(/^\/english\/explain$/, (_, q) => {
+  setTitle('Giải thích 30 giây');
+  let v = q.id && S.byId.vocab[q.id];
+  if (!v) {
+    const learned = S.data.vocab.filter(x => x.en_def && S.prog.srs[x.id] && S.prog.srs[x.id].b >= 1);
+    const pool = learned.length >= 5 ? learned : S.data.vocab.filter(x => x.en_def);
+    const fresh = pool.filter(x => !S.prog.explain[x.id]);
+    v = shuffle(fresh.length ? fresh : pool)[0];
+  }
+  if (!v) return render('<p>Chưa có thuật ngữ.</p>');
+  const kw = defKeywords(v);
+  const name = String(v.term).replace(/\s*\([^)]*\)/g, '');
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const st = S.prog.explain[v.id];
+  render(`
+  <div class="card">
+    <div class="term">${esc(v.term)}</div>
+    <div class="row"><span class="ipa">${esc(v.ipa)}</span>${sayBtns(v.term)}${st ? `<span class="pill">đã nói ${st.n} lần</span>` : ''}</div>
+    <p class="vi">${esc(v.vi_meaning)}</p>
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">Dàn ý gợi ý (nói 3–4 câu)</h3>
+    <ol class="small">
+      <li><b>${esc(name)}</b> is / means … <span class="muted">(định nghĩa)</span></li>
+      <li>It is used when / It affects … <span class="muted">(dùng khi nào, ảnh hưởng gì)</span></li>
+      <li>For example, … <span class="muted">(ví dụ trong đề hoặc ở công ty)</span></li>
+      <li>In our company, … <span class="muted">(liên hệ công việc CFO, nếu được)</span></li>
+    </ol>
+    ${kw.length ? `<p class="small">Từ khóa nên dùng: ${kw.map(k => `<span class="chip">${esc(k)}</span>`).join(' ')}</p>` : ''}
+  </div>
+  <div class="card">
+    <div class="row"><button class="primary" id="exRec">🎙 Bắt đầu nói 30 giây</button><span class="timer big" id="exT">0:30</span></div>
+    <div id="exOut"></div>
+  </div>
+  <div class="card" id="exModel" hidden>
+    <h3 style="margin-top:0">Câu mẫu để so sánh</h3>
+    ${v.en_def ? `<p class="en">${spk(name + ': ' + v.en_def)} ${sayBtns(name + '. ' + v.en_def)}</p>` : ''}
+    ${v.exam_example_en ? `<p class="en">${spk(v.exam_example_en)} ${sayBtns(v.exam_example_en)}</p>` : ''}
+    ${v.cfo_example_en ? `<p class="en">${spk(v.cfo_example_en)} ${sayBtns(v.cfo_example_en)}</p>` : ''}
+    <div class="row small">${aiPill('Câu mẫu: AI biên soạn – cần xác minh')}</div>
+    ${SR ? `<div class="row" style="margin-top:10px"><button id="exSR">✓ Nói lại để máy đếm từ khóa (cần mạng)</button></div><div id="exSRo"></div>` : '<p class="small muted">Trình duyệt này không có nhận dạng giọng nói, chị nghe lại bản ghi để tự so sánh.</p>'}
+  </div>
+  <div class="row"><button id="exNext">Từ khác ›</button><button id="exShow">Xem câu mẫu</button><a class="btn" href="#/english/word/${encodeURIComponent(v.id)}">Xem thẻ từ</a></div>
+  <p class="small muted">Ghi âm chạy offline và chỉ lưu tạm trên máy, không gửi đi đâu.</p>`);
+  let rec = null, stream = null, tmr = null, endAt = 0;
+  const stopAll = () => { clearInterval(tmr); if (rec && rec.state === 'recording') rec.stop(); else if (stream) stream.getTracks().forEach(t => t.stop()); };
+  onLeave = stopAll;
+  const showModel = () => { $('#exModel').hidden = false; };
+  $('#exShow').onclick = showModel;
+  $('#exNext').onclick = () => { stopAll(); location.hash = '#/english/explain?r=' + Date.now().toString(36); };
+  $('#exRec').onclick = async () => {
+    const b = $('#exRec');
+    if (rec && rec.state === 'recording') { stopAll(); return; }
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) { toast('Thiết bị không hỗ trợ ghi âm trong trình duyệt. Chị vẫn có thể nói to rồi bấm "Xem câu mẫu".'); return; }
+    try {
+      TTS.stop();
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const chunks = []; rec = new MediaRecorder(stream);
+      rec.ondataavailable = e => chunks.push(e.data);
+      rec.onstop = () => {
+        clearInterval(tmr); stream.getTracks().forEach(t => t.stop());
+        if (!$('#exOut') || !document.body.contains(b)) return; // đã rời trang
+        b.textContent = '🎙 Nói lại 30 giây'; $('#exT').textContent = '0:30';
+        const used = Math.min(30, Math.round((30e3 - Math.max(0, endAt - Date.now())) / 1e3));
+        const url = URL.createObjectURL(new Blob(chunks, { type: rec.mimeType || 'audio/webm' }));
+        $('#exOut').innerHTML = `<div class="row small" style="margin-top:8px"><span>Giọng của chị (${used} giây):</span><audio controls src="${url}"></audio></div>
+          <p class="small muted">Nghe lại, so với câu mẫu bên dưới: đã nói đủ định nghĩa, ví dụ và từ khóa chưa?</p>`;
+        const e = S.prog.explain[v.id] = S.prog.explain[v.id] || { n: 0 }; e.n++; e.d = today();
+        logStudy('speak'); saveProg(); showModel();
+      };
+      rec.start(); endAt = Date.now() + 30e3; b.textContent = '⏹ Dừng sớm';
+      tmr = setInterval(() => {
+        const left = Math.max(0, endAt - Date.now()); const el = $('#exT');
+        if (el) el.textContent = `0:${String(Math.ceil(left / 1e3)).padStart(2, '0')}`;
+        if (!left) stopAll();
+      }, 250);
+    } catch (e) { toast('Không mở được micro. Hãy cho phép quyền micro cho trang này.'); }
+  };
+  const srb = $('#exSR');
+  const runSR = () => {
+    const r = new SR(); r.lang = 'en-US'; r.continuous = true; r.interimResults = false;
+    let said = ''; srb.textContent = '… đang nghe (bấm lại để dừng)'; srb.onclick = () => r.stop();
+    const cap = setTimeout(() => r.stop(), 30e3);
+    onLeave = () => { clearTimeout(cap); try { r.abort(); } catch (e) { } };
+    r.onresult = e => { said = [...e.results].map(x => x[0].transcript).join(' '); };
+    r.onerror = e => toast(e.error === 'network' ? 'Đếm từ khóa cần có mạng.' : 'Không nhận được giọng nói: ' + e.error);
+    r.onend = () => {
+      clearTimeout(cap); if (!document.body.contains(srb)) return;
+      srb.textContent = '✓ Nói lại để máy đếm từ khóa (cần mạng)'; srb.onclick = runSR;
+      const low = ' ' + said.toLowerCase() + ' ';
+      const want = [name.toLowerCase(), ...kw.map(k => k.toLowerCase())];
+      $('#exSRo').innerHTML = said ? `<p class="small">Máy nghe được: "${esc(said)}"</p><p class="small">${want.map(k => `<span class="pill ${low.includes(k.replace(/s$/, '')) ? 'ok' : 'bad'}">${low.includes(k.replace(/s$/, '')) ? '✓' : '✗'} ${esc(k)}</span>`).join(' ')}</p><p class="small muted">Máy chỉ đếm từ khóa, không chấm ngữ pháp hay ý.</p>` : '<p class="small muted">Chưa nghe được gì.</p>';
+    };
+    try { TTS.stop(); r.start(); } catch (e) { srb.textContent = '✓ Nói lại để máy đếm từ khóa (cần mạng)'; srb.onclick = runSR; }
+  };
+  if (srb) srb.onclick = runSR;
+});
+
 /* ---------- KNOWLEDGE ---------- */
 on(/^\/know$/, (_, q) => {
   setTitle('Kiến thức theo LOS');
@@ -513,15 +942,15 @@ on(/^\/know\/(.+)$/, ([code]) => {
   const ps = passages().filter(p => p.los === code);
   render(`
   <div class="card">
-    <div class="row"><b>${esc(shortLos(code))}</b>${coverPill(l.coverage)}${srcPill(l.source)}</div>
+    <div class="row"><b>${esc(shortLos(code))}</b>${coverPill(l.coverage)}${srcPill(l)}</div>
     <h2 class="en" style="margin-top:8px">${spk(l.title_en)} ${sayBtns(l.title_en)}</h2>
     <p class="vi">${esc(l.title_vi)}</p>
   </div>
-  <div class="card"><h3 style="margin-top:0">Tóm tắt (tiếng Anh)</h3>
+  <div class="card"><div class="row"><h3 style="margin:0;flex:1">Tóm tắt (tiếng Anh)</h3>${aiPill('AI biên soạn – cần xác minh')}</div>
     ${splitSent(l.summary_en).map(s => `<p class="en">${spk(s)} ${sayBtns(s)}</p>`).join('')}
-    <details ${S.settings.showVi ? 'open' : ''}><summary>Bản tiếng Việt</summary><p>${esc(l.summary_vi)}</p></details>
+    <details ${viLv() === 1 ? 'open' : ''}><summary>Bản tiếng Việt</summary><p>${esc(l.summary_vi)}</p></details>
   </div>
-  ${l.smarttrain_ref ? `<div class="card"><h3 style="margin-top:0">Smart Train</h3><p>${esc(l.smarttrain_ref)}</p></div>` : ''}
+  ${l.smarttrain_ref ? `<div class="card"><div class="row"><h3 style="margin:0;flex:1">Smart Train</h3><span class="pill">${esc(SRC.st[0])}</span></div><p>${esc(l.smarttrain_ref)}</p></div>` : ''}
   ${l.vas_compare ? `<div class="card"><h3 style="margin-top:0">So sánh với VAS</h3><p>${esc(l.vas_compare)}</p></div>` : ''}
   ${l.ifrs_compare ? `<div class="card"><h3 style="margin-top:0">US GAAP và IFRS</h3><p>${esc(l.ifrs_compare)}</p></div>` : ''}
   <div class="row">
@@ -552,7 +981,12 @@ on(/^\/exam$/, () => {
   <h3>Luyện theo LOS</h3>
   <div class="card row"><select id="losSel" style="flex:1">${los.map(l => { const c = S.data.mcq.filter(q => q.los === l.los).length; return c ? `<option value="${esc(l.los)}">${esc(shortLos(l.los))} – ${esc(l.title_vi)} (${c})</option>` : ''; }).join('')}</select>
   <button class="primary" id="goLos">Bắt đầu</button></div>
-  ${priv ? '' : `<div class="note">Muốn thêm 453 câu Gleim (Unit 1–6) có giải thích tiếng Việt: vào <a href="#/data">Dữ liệu</a>, nhập file <b>CMA_data_private.xlsx</b>.</div>`}`);
+  ${priv ? '' : `<div class="note">Muốn thêm 453 câu Gleim (Unit 1–6) có giải thích tiếng Việt: vào <a href="#/data">Dữ liệu</a>, nhập file <b>CMA_data_private.xlsx</b>.</div>`}
+  ${oldImpNote()}
+  <h3>Mức tiếng Việt khi luyện</h3>
+  ${viCtl()}
+  <p class="small muted">${esc(VI_LEVEL_NOTE[viLv()])} Đề thử tính giờ luôn chỉ có tiếng Anh, như đề thật.</p>
+  ${viSuggest()}`);
   $('#goLos').onclick = () => location.hash = '#/exam/mcq?los=' + encodeURIComponent($('#losSel').value);
 });
 
@@ -574,7 +1008,7 @@ on(/^\/exam\/mcq$/, (_, q) => {
   }
   drawQ();
 });
-function qHtml(x) { const mono = /\S {3,}\S/.test(x.question) || /\n.*\$/.test(x.question); return `<div class="q ${mono ? 'mono' : ''}">${spk(x.question)}</div>`; }
+function qHtml(x, hl) { const mono = /\S {3,}\S/.test(x.question) || /\n.*\$/.test(x.question); return `<div class="q ${mono ? 'mono' : ''}">${spk(x.question, hl)}</div>`; }
 function drawQ() {
   setTitle(ex.title);
   clearInterval(drawQ._t);
@@ -584,25 +1018,31 @@ function drawQ() {
   const picked = ex.ans[x.id];
   const show = picked && !ex.timed;
   const opts = ['A', 'B', 'C', 'D'].filter(k => x[k] !== '' && x[k] != null);
+  const study = !ex.timed; // chế độ tính giờ: không tô màu, không dịch, không phân tích
+  const lv = viLv();
   render(`
-  <div class="row small muted" style="margin-bottom:8px"><span>Câu ${ex.i + 1}/${ex.ids.length}</span><span class="pill">${esc(shortLos(x.los))}</span>
+  <div class="row small muted" style="margin-bottom:8px"><span>Câu ${ex.i + 1}/${ex.ids.length}</span><span class="pill">${esc(shortLos(x.los))}</span>${srcPill(x, 'mcq')}
     ${ex.timed ? `<span class="spacer"></span><span class="timer" id="tmr"></span>` : ''}</div>
+  ${study ? viCtl() : ''}
   <div class="card">
-    ${qHtml(x)}
+    ${qHtml(x, study)}
+    ${study ? qViPart(x, opts) : ''}
     <div class="row" style="margin:8px 0">${sayBtns(x.question, 'câu hỏi')}</div>
     ${opts.map(k => {
       let cls = '';
       if (show) cls = k === x.answer ? 'right' : (k === picked ? 'wrong' : '');
       else if (ex.timed && picked === k) cls = 'right';
-      return `<button class="opt ${cls}" data-k="${k}"><b>${k}.</b><span>${esc(x[k])}</span></button>`;
+      return optHtml(x, k, cls, study);
     }).join('')}
   </div>
   ${show ? `<div class="card">
      <h3 style="margin-top:0">${picked === x.answer ? '✓ Đúng' : `✗ Sai – đáp án ${esc(x.answer)}`}</h3>
      <p>${esc(x.explain_vi)}</p>
      <details><summary>Giải thích tiếng Anh</summary>${splitSent(x.explain_en).map(s => `<p class="en">${spk(s)} ${sayBtns(s)}</p>`).join('')}</details>
-     <div class="row small">${srcPill(x.source)}<a class="pill" href="#/know/${encodeURIComponent(x.los)}">Xem LOS ${esc(shortLos(x.los))}</a></div>
+     ${lv === 3 ? `<details><summary>Bản dịch câu hỏi và phương án</summary>${trBlock(x, opts)}</details>` : ''}
+     <div class="row small">${srcPill(x, 'mcq')}${srcType(x, 'mcq') === 'st' ? aiPill('Giải thích tiếng Việt: AI – cần xác minh') : ''}<a class="pill" href="#/know/${encodeURIComponent(x.los)}">Xem LOS ${esc(shortLos(x.los))}</a></div>
    </div>` : ''}
+  ${study ? deepDive(x, opts, !!show) : ''}
   <div class="row">
     ${ex.i > 0 ? '<button id="qPrev">‹ Câu trước</button>' : ''}<span class="spacer"></span>
     ${ex.timed ? '<button id="qSubmit">Nộp bài</button>' : ''}
@@ -612,9 +1052,10 @@ function drawQ() {
     if (show) return;
     const k = b.dataset.k; const first = !(x.id in ex.ans);
     ex.ans[x.id] = k;
-    if (!ex.timed && first) recordQ(x, k === x.answer);
+    if (!ex.timed && first) { recordQ(x, k === x.answer); viRecord(k === x.answer); }
     drawQ();
   });
+  bindDeepDive();
   $('#qPrev') && ($('#qPrev').onclick = () => { ex.i--; drawQ(); });
   $('#qNext') && ($('#qNext').onclick = () => { ex.i++; drawQ(); });
   $('#qSubmit') && ($('#qSubmit').onclick = () => { if (confirm('Nộp bài và xem kết quả?')) finishTimed(); });
@@ -645,6 +1086,7 @@ function drawResult() {
   render(`
   <div class="card"><h2>Kết quả: ${right}/${qs.length} (${pct(right, qs.length)}%)</h2>
     <p class="muted small">Mốc tham khảo: điểm đạt CMA là 360/500 (khoảng 72%), cần cả MCQ và CBQ.</p>
+    ${viSuggest()}
     <table><tr><th>LOS</th><th class="num">Đúng</th><th class="num">%</th></tr>
     ${Object.entries(by).sort((a, b) => losOrder(a[0]) - losOrder(b[0])).map(([l, b]) => `<tr><td><a href="#/know/${encodeURIComponent(l)}">${esc(losName(l))}</a></td><td class="num">${b.c}/${b.n}</td><td class="num">${pct(b.c, b.n)}%</td></tr>`).join('')}</table>
   </div>
@@ -680,7 +1122,7 @@ on(/^\/exam\/cbq\/(.+)$/, ([id]) => {
   <details class="card" ${cb.i === 0 ? 'open' : ''}><summary>Đề bài tình huống</summary>
     <div class="row" style="margin:8px 0">${sayBtns(c.en, 'tình huống')}</div>
     ${String(c.en).split(/\n+/).map(p => `<p class="en q">${spk(p)}</p>`).join('')}
-    <details><summary>Bản tiếng Việt</summary>${String(c.vi).split(/\n+/).map(p => `<p class="q">${esc(p)}</p>`).join('')}</details>
+    ${viLv() === 3 && cb.i < c.qs.length && !cb.ans[c.qs[cb.i].q_no] ? '' : `<details ${viLv() === 1 ? 'open' : ''}><summary>Bản tiếng Việt</summary><div class="row small">${aiPill()}</div>${String(c.vi).split(/\n+/).map(p => `<p class="q vi">${esc(p)}</p>`).join('')}</details>`}
   </details>`;
   if (cb.i >= c.qs.length) {
     const right = c.qs.filter(x => cb.ans[x.q_no] === x.answer).length; const sc = pct(right, c.qs.length);
@@ -691,17 +1133,23 @@ on(/^\/exam\/cbq\/(.+)$/, ([id]) => {
     $('#cbAgain').onclick = () => { cb = null; route(); }; return;
   }
   const x = c.qs[cb.i]; const picked = cb.ans[x.q_no];
+  const opts = ['A', 'B', 'C', 'D'].filter(k => x[k] !== '' && x[k] != null);
   render(`${showCase}
+  ${viCtl()}
   <div class="card">
-    <div class="row small muted"><span>Câu ${cb.i + 1}/${c.qs.length}</span></div>
-    <p class="en">${spk(x.question)} ${sayBtns(x.question)}</p>
-    ${['A', 'B', 'C', 'D'].filter(k => x[k] !== '' && x[k] != null).map(k => `<button class="opt ${picked ? (k === x.answer ? 'right' : k === picked ? 'wrong' : '') : ''}" data-k="${k}"><b>${k}.</b><span>${esc(x[k])}</span></button>`).join('')}
+    <div class="row small muted"><span>Câu ${cb.i + 1}/${c.qs.length}</span>${srcPill(x, 'cbq')}</div>
+    <p class="en q">${spk(x.question, true)} ${sayBtns(x.question)}</p>
+    ${qViPart(x, opts)}
+    ${opts.map(k => optHtml(x, k, picked ? (k === x.answer ? 'right' : k === picked ? 'wrong' : '') : '', true)).join('')}
     ${picked ? `<h3>${picked === x.answer ? '✓ Đúng' : '✗ Sai – đáp án ' + esc(x.answer)}</h3><p>${esc(x.explain_vi)}</p>
       <details><summary>Giải thích tiếng Anh</summary><p class="en">${spk(x.explain_en)} ${sayBtns(x.explain_en)}</p></details>
+      ${viLv() === 3 ? `<details><summary>Bản dịch câu hỏi và phương án</summary>${trBlock(x, opts)}</details>` : ''}
       <button class="primary" id="cbNext">${cb.i + 1 < c.qs.length ? 'Câu tiếp ›' : 'Xem kết quả'}</button>` : ''}
-  </div>`);
-  $$('.opt').forEach(b => b.onclick = () => { if (cb.ans[x.q_no]) return; cb.ans[x.q_no] = b.dataset.k; route(); });
+  </div>
+  ${deepDive(x, opts, !!picked)}`);
+  $$('.opt').forEach(b => b.onclick = () => { if (cb.ans[x.q_no]) return; cb.ans[x.q_no] = b.dataset.k; viRecord(b.dataset.k === x.answer); route(); });
   $('#cbNext') && ($('#cbNext').onclick = () => { cb.i++; route(); });
+  bindDeepDive();
 });
 
 on(/^\/exam\/stats$/, () => {
@@ -728,7 +1176,7 @@ on(/^\/exam\/stats$/, () => {
   <tr><td class="num">${S.data.vocab.length - Object.keys(S.prog.srs).length}</td>${boxes.slice(1).map(b => `<td class="num">${b}</td>`).join('')}</tr></table></div>
   <h3>Nhật ký 14 ngày</h3>
   <div class="card"><table><tr><th>Ngày</th><th class="num">Thẻ</th><th class="num">MCQ</th><th class="num">Nghe–chép</th><th class="num">Khác</th></tr>
-  ${days.reverse().map(d => { const x = S.prog.log[d]; return `<tr><td>${d}</td><td class="num">${x.cards || 0}</td><td class="num">${x.mcq || 0}</td><td class="num">${x.dict || 0}</td><td class="num">${(x.read || 0) + (x.speak || 0) + (x.cbq || 0) + (x.cfo || 0)}</td></tr>`; }).join('') || '<tr><td colspan="5" class="muted">Chưa có</td></tr>'}</table></div>`);
+  ${days.reverse().map(d => { const x = S.prog.log[d]; return `<tr><td>${d}</td><td class="num">${x.cards || 0}</td><td class="num">${x.mcq || 0}</td><td class="num">${x.dict || 0}</td><td class="num">${(x.read || 0) + (x.speak || 0) + (x.cbq || 0) + (x.cfo || 0) + (x.tr || 0)}</td></tr>`; }).join('') || '<tr><td colspan="5" class="muted">Chưa có</td></tr>'}</table></div>`);
 });
 
 /* ---------- CFO ---------- */
@@ -807,6 +1255,10 @@ async function importFile(file) {
   await store.set('imp', S.imp); rebuild();
   return report.join('<br>');
 }
+function oldImpNote() {
+  const n = S.data.mcq.filter(q => q._src === 'imp' && !('question_vi' in q)).length;
+  return n ? `<div class="note">Có ${n} câu MCQ chị đã nhập từ file cũ, chưa có bản dịch tiếng Việt. Vào <a href="#/data">Dữ liệu</a> và nhập lại file <b>CMA_data_private.xlsx</b> bản mới. Tiến độ làm bài giữ nguyên vì mã câu không đổi.</div>` : '';
+}
 function download(name, text, type = 'application/json') {
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name;
   document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
@@ -824,7 +1276,8 @@ on(/^\/data$/, async () => {
 
   <h3>Nhập file Excel hoặc CSV</h3>
   <div class="card">
-    <p class="small">Mỗi sheet trong file Excel đặt tên đúng loại dữ liệu: <code>vocab</code>, <code>los</code>, <code>sentences</code>, <code>mcq</code>, <code>cbq</code>, <code>cfo</code>. Dòng 1 là tên cột (giữ như file mẫu). Dòng có cùng mã (<code>id</code>) sẽ ghi đè, dòng mới được thêm vào. Với file CSV, đặt tên file chứa loại dữ liệu, ví dụ <code>vocab.csv</code>.</p>
+    ${oldImpNote()}
+    <p class="small">Mỗi sheet trong file Excel đặt tên đúng loại dữ liệu: <code>vocab</code>, <code>los</code>, <code>sentences</code>, <code>mcq</code>, <code>cbq</code>, <code>cfo</code>, <code>glossary</code>. Cột <code>source_type</code> (không bắt buộc) ghi nguồn: <code>ima</code>, <code>st</code> (tài liệu chị cung cấp), <code>ai</code>, <code>me</code> (chị tự nhập). Dòng 1 là tên cột (giữ như file mẫu). Dòng có cùng mã (<code>id</code>) sẽ ghi đè, dòng mới được thêm vào. Với file CSV, đặt tên file chứa loại dữ liệu, ví dụ <code>vocab.csv</code>.</p>
     <div class="row"><input type="file" id="fileIn" accept=".xlsx,.xls,.csv" multiple></div>
     <div id="impRes" class="small" style="margin-top:8px">${impMsg}</div>
     <div class="row" style="margin-top:8px"><a class="btn" href="data/CMA_data_public.xlsx" download>⬇ Tải file mẫu (toàn bộ dữ liệu có sẵn)</a></div>
@@ -854,7 +1307,10 @@ on(/^\/data$/, async () => {
     <div class="row"><label>Ngày thi <input type="date" id="exD" value="${esc(S.settings.examDate)}"></label></div>
     <div class="row"><label>Số từ mới mỗi ngày <input type="number" id="npd" min="0" max="50" value="${esc(S.settings.newPerDay)}" style="width:80px"></label></div>
     <div class="row"><label><input type="checkbox" id="aSp" ${S.settings.autoSpeak ? 'checked' : ''}> Tự đọc từ khi hiện thẻ</label></div>
-    <div class="row"><label><input type="checkbox" id="sVi" ${S.settings.showVi ? 'checked' : ''}> Hiện tiếng Việt kèm câu tiếng Anh</label></div>
+    <div class="row"><label>Mức tiếng Việt <select id="viLv">${[1, 2, 3].map(l => `<option value="${l}" ${viLv() === l ? 'selected' : ''}>${l}. ${VI_LEVELS[l]}</option>`).join('')}</select></label></div>
+    <p class="small muted" id="viNote">${esc(VI_LEVEL_NOTE[viLv()])}</p>
+    ${Object.keys(S.prog.viStat).length ? `<p class="small muted">Tỷ lệ đúng theo mức: ${[1, 2, 3].filter(l => S.prog.viStat[l]).map(l => `mức ${l}: ${pct(S.prog.viStat[l].c, S.prog.viStat[l].n)}% (${S.prog.viStat[l].n} câu)`).join(' · ')}</p>` : ''}
+    ${viSuggest()}
     <div class="row"><label>Giao diện <select id="thm"><option value="">Theo máy</option><option value="light" ${S.settings.theme === 'light' ? 'selected' : ''}>Sáng</option><option value="dark" ${S.settings.theme === 'dark' ? 'selected' : ''}>Tối</option></select></label></div>
   </div>
   <div id="install"></div>
@@ -874,9 +1330,10 @@ on(/^\/data$/, async () => {
     } catch (err) { toast('Không khôi phục được: ' + esc(err.message)); }
   };
   $('#clrImp').onclick = async () => { if (!confirm('Xóa toàn bộ dữ liệu chị đã nhập (kể cả câu Gleim)? Tiến độ vẫn giữ.')) return; S.imp = {}; await store.set('imp', S.imp); rebuild(); route(); };
-  $('#clrProg').onclick = async () => { if (!confirm('Xóa toàn bộ tiến độ học? Nên sao lưu trước.')) return; S.prog = { srs: {}, mcq: {}, dict: {}, cbq: {}, newDay: { d: '', n: 0 }, log: {} }; await store.set('prog', S.prog); route(); };
+  $('#clrProg').onclick = async () => { if (!confirm('Xóa toàn bộ tiến độ học? Nên sao lưu trước.')) return; S.prog = { srs: {}, mcq: {}, dict: {}, cbq: {}, newDay: { d: '', n: 0 }, log: {}, tr: {}, explain: {}, viStat: {} }; await store.set('prog', S.prog); route(); };
   const bind = (id, k, f = x => x) => { const el = $('#' + id); if (el) el.onchange = e => { S.settings[k] = f(e.target.type === 'checkbox' ? e.target.checked : e.target.value); saveSettings(); }; };
-  bind('vSel', 'voice'); bind('exD', 'examDate'); bind('npd', 'newPerDay', x => Math.max(0, +x || 0)); bind('aSp', 'autoSpeak'); bind('sVi', 'showVi'); bind('thm', 'theme');
+  bind('vSel', 'voice'); bind('exD', 'examDate'); bind('npd', 'newPerDay', x => Math.max(0, +x || 0)); bind('aSp', 'autoSpeak'); bind('thm', 'theme');
+  $('#viLv').onchange = e => { setViLevel(+e.target.value); $('#viNote').textContent = VI_LEVEL_NOTE[viLv()]; };
   $('#rN').oninput = e => { S.settings.rate = +e.target.value; $('#rNv').textContent = e.target.value + '×'; saveSettings(); };
   $('#rS').oninput = e => { S.settings.slow = +e.target.value; $('#rSv').textContent = e.target.value + '×'; saveSettings(); };
 });
@@ -899,11 +1356,15 @@ function renderInstall() {
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-say]');
   if (b) { e.preventDefault(); e.stopPropagation(); TTS.speak(b.dataset.say, { slow: !!b.dataset.slow }); return; }
+  const lv = e.target.closest('[data-vilv]');
+  if (lv) { e.preventDefault(); setViLevel(+lv.dataset.vilv); route(); return; }
   const w = e.target.closest('.w');
   if (w && !e.target.closest('button.opt')) {
     const word = w.textContent; TTS.speak(word, { slow: true });
-    const hit = S.termMap[word.toLowerCase()] || S.termMap[word.toLowerCase().replace(/(ies)$/, 'y').replace(/s$/, '')];
-    if (hit) toast(`<b>${esc(hit.term)}</b> ${esc(hit.ipa)}<br>${esc(hit.vi_meaning)}`, 3500);
+    const r = lookupWord(w);
+    if (r && r.v) toast(`<b>${esc(r.v.term)}</b> ${esc(r.v.ipa)} <small>(${esc(r.v.word_type)})</small><br>${esc(r.v.vi_meaning)}${r.v.en_def ? `<br><small>${esc(r.v.en_def)}</small>` : ''}`, 5000);
+    else if (r && r.g) toast(`<b>${esc(r.g.word)}</b> <small>(${esc(r.g.pos)})</small><br>${esc(r.g.vi)}<br><small>Từ điển AI biên soạn – cần xác minh</small>`, 4000);
+    else toast(`<b>${esc(word)}</b>: chưa có trong từ điển của tool.`, 2200);
   }
 });
 $('#stopBtn').onclick = () => TTS.stop();
@@ -914,8 +1375,11 @@ window.addEventListener('hashchange', route);
 async function boot() {
   render('<p class="muted">Đang tải dữ liệu…</p>');
   S.settings = Object.assign(S.settings, await store.get('settings') || {});
+  // v1.0 → v1.1: chuyển ô "Hiện tiếng Việt" cũ sang mức tiếng Việt 1–3 (bỏ tích = mức 3)
+  if (![1, 2, 3].includes(+S.settings.viLevel)) { S.settings.viLevel = S.settings.showVi === false ? 3 : 1; store.set('settings', S.settings); }
   applyTheme();
   S.prog = Object.assign(S.prog, await store.get('prog') || {});
+  for (const k of ['tr', 'explain', 'viStat']) if (!S.prog[k] || typeof S.prog[k] !== 'object') S.prog[k] = {};
   S.imp = await store.get('imp') || {};
   try { S.pub = await (await fetch('data/public.json')).json(); }
   catch (e) { render('<div class="card"><p>Không tải được dữ liệu. Hãy mở lại khi có mạng lần đầu để tool lưu offline.</p></div>'); return; }
