@@ -1,7 +1,7 @@
 /* CMA Study – PWA học tiếng Anh kế toán và luyện thi CMA Part 1.
    Không cần build. Dữ liệu: data/public.json (nội dung tự soạn) + file Excel người dùng nhập (lưu IndexedDB). */
 'use strict';
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.4.1';
 const TYPES = ['vocab', 'los', 'sentences', 'mcq', 'cbq', 'cfo', 'glossary', 'formulas', 'concepts', 'lessons', 'kparts'];
 const TYPE_VI = { vocab: 'Từ vựng', los: 'LOS', sentences: 'Câu song ngữ', mcq: 'Câu MCQ', cbq: 'Câu CBQ', cfo: 'Mẫu câu CFO', glossary: 'Từ điển chung', formulas: 'Công thức', concepts: 'Khái niệm', lessons: 'Bài học', kparts: 'Bài giảng slide' };
 const KEY = {
