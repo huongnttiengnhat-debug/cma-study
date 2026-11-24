@@ -146,3 +146,24 @@ body.wide main{max-width:1320px}
   .split{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);grid-template-areas:"l p" "l c";overflow:visible;margin:0;padding:0;gap:16px;align-items:start}
   .pane.pl{grid-area:l}.pane.pp{grid-area:p}.pane.pc{grid-area:c}
 }
+
+/* v1.3 bài giảng slide */
+.kslide{border-top:1px solid var(--line);padding:8px 0 4px;margin-top:6px}
+.kslide:first-child{border-top:0;margin-top:0}
+.kl{margin:6px 0;line-height:1.5}
+.kl h4{margin:4px 0 0}
+.kli{padding-left:14px;position:relative}
+.kli::before{content:"•";position:absolute;left:2px}
+.kli2{padding-left:32px}
+.kli2::before{content:"–";left:18px}
+.kf{border:1px solid var(--line);border-radius:10px;padding:6px 10px;background:var(--bg)}
+.kq{border-left:3px solid var(--brand);padding-left:10px}
+.knote{border-left:3px solid #c0392b;padding-left:10px}
+.kvi{font-size:.94em;margin-top:2px}
+.kvd summary{font-size:.85em;color:var(--muted);cursor:pointer}
+.ks{display:inline}
+.tscroll{overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%}
+.ktab{border-collapse:collapse;font-size:.9em;min-width:100%}
+.ktab th,.ktab td{border:1px solid var(--line);padding:4px 6px;vertical-align:top;text-align:left}
+.ktab td.ksay{white-space:nowrap;border:0}
+.kans{border:1px dashed var(--line);border-radius:10px;padding:6px 10px}

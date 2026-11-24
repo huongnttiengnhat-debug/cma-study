@@ -1,18 +1,18 @@
 /* CMA Study – PWA học tiếng Anh kế toán và luyện thi CMA Part 1.
    Không cần build. Dữ liệu: data/public.json (nội dung tự soạn) + file Excel người dùng nhập (lưu IndexedDB). */
 'use strict';
-const APP_VERSION = '1.2.1';
-const TYPES = ['vocab', 'los', 'sentences', 'mcq', 'cbq', 'cfo', 'glossary', 'formulas', 'concepts', 'lessons'];
-const TYPE_VI = { vocab: 'Từ vựng', los: 'LOS', sentences: 'Câu song ngữ', mcq: 'Câu MCQ', cbq: 'Câu CBQ', cfo: 'Mẫu câu CFO', glossary: 'Từ điển chung', formulas: 'Công thức', concepts: 'Khái niệm', lessons: 'Bài học' };
+const APP_VERSION = '1.3.0';
+const TYPES = ['vocab', 'los', 'sentences', 'mcq', 'cbq', 'cfo', 'glossary', 'formulas', 'concepts', 'lessons', 'kparts'];
+const TYPE_VI = { vocab: 'Từ vựng', los: 'LOS', sentences: 'Câu song ngữ', mcq: 'Câu MCQ', cbq: 'Câu CBQ', cfo: 'Mẫu câu CFO', glossary: 'Từ điển chung', formulas: 'Công thức', concepts: 'Khái niệm', lessons: 'Bài học', kparts: 'Bài giảng slide' };
 const KEY = {
   vocab: r => r.id, los: r => r.los, sentences: r => r.id, mcq: r => r.id,
   cbq: r => r.case_id + '#' + r.q_no, cfo: r => r.id, glossary: r => String(r.word).toLowerCase(),
-  formulas: r => r.id, concepts: r => r.id, lessons: r => r.los
+  formulas: r => r.id, concepts: r => r.id, lessons: r => r.los, kparts: r => r.id
 };
 const REQUIRED = {
   vocab: ['term', 'vi_meaning'], los: ['los', 'title_en'], sentences: ['en', 'vi'],
   mcq: ['question', 'A', 'B', 'answer'], cbq: ['case_id', 'question', 'A', 'B', 'answer'], cfo: ['phrase_en', 'phrase_vi'], glossary: ['word', 'vi'],
-  formulas: ['id', 'name_en'], concepts: ['id', 'term_en'], lessons: ['los']
+  formulas: ['id', 'name_en'], concepts: ['id', 'term_en'], lessons: ['los'], kparts: ['id', 'los']
 };
 /* Nhãn nguồn thống nhất (giai đoạn a) */
 const SRC = {
@@ -955,11 +955,13 @@ on(/^\/know\/(.+)$/, ([code]) => {
     ${splitSent(l.summary_en).map(s => `<p class="en">${spk(s)} ${sayBtns(s)}</p>`).join('')}
     <details ${viLv() === 1 ? 'open' : ''}><summary>Bản tiếng Việt</summary><p>${esc(l.summary_vi)}</p></details>
   </div>
+  ${kpRowsOf(code).length ? `<div class="card"><div class="row"><h3 style="margin:0;flex:1">Bài giảng Smart Train</h3>${kpPill('st')}</div>${viCtl()}${kpLecture(code)}</div>
+  ${kpSupplement(code) ? `<div class="card"><h3 style="margin-top:0">Bổ sung theo IMA và ghi chú lệch</h3>${kpSupplement(code)}</div>` : ''}` : ''}
   ${l.smarttrain_ref ? `<div class="card"><div class="row"><h3 style="margin:0;flex:1">Smart Train</h3><span class="pill">${esc(SRC.st[0])}</span></div><p>${esc(l.smarttrain_ref)}</p></div>` : ''}
   ${l.vas_compare ? `<div class="card"><h3 style="margin-top:0">So sánh với VAS</h3><p>${esc(l.vas_compare)}</p></div>` : ''}
   ${l.ifrs_compare ? `<div class="card"><h3 style="margin-top:0">US GAAP và IFRS</h3><p>${esc(l.ifrs_compare)}</p></div>` : ''}
   <div class="row">
-    <a class="btn primary" href="#/study/${encodeURIComponent(code)}">📖 Học tích hợp${S.byId.lessons?.[code] ? ' (bài 13 phần)' : ''}</a>
+    <a class="btn primary" href="#/study/${encodeURIComponent(code)}">📖 Học tích hợp${S.byId.lessons?.[code] ? (S.byId.lessons[code].layout === 'st' ? ' (bài giảng slide + 11 phần)' : ' (bài 13 phần)') : ''}</a>
     ${nq ? `<a class="btn" href="#/exam/mcq?los=${encodeURIComponent(code)}">📝 Luyện ${nq} câu MCQ</a>` : '<span class="muted small">Chưa có câu MCQ cho LOS này.</span>'}
     ${cb.map(c => `<a class="btn" href="#/exam/cbq/${encodeURIComponent(c)}">📋 CBQ ${esc(c)}</a>`).join('')}
     ${ps.map(p => `<a class="btn" href="#/english/read/${encodeURIComponent(p.id)}">📖 ${esc(p.title)}</a>`).join('')}
@@ -1079,6 +1081,7 @@ const paras = t => String(t || '').split(/\n+/).filter(Boolean).map(s => `<p>${e
 const bullets = t => { const a = String(t || '').split(/\n+/).filter(Boolean); return a.length ? `<ul>${a.map(s => `<li>${esc(s)}</li>`).join('')}</ul>` : ''; };
 function lessonHtml(code) {
   const l = S.byLos[code], ls = S.byId.lessons?.[code];
+  if (ls?.layout === 'st' || kpRowsOf(code).length) return lessonHtmlSt(code);
   const cs = S.data.concepts.filter(c => c.los === code), vs = S.data.vocab.filter(v => v.los === code);
   const fs = ls ? ids(ls.formula_ids) : [...new Set(S.data.mcq.filter(x => x.los === code).flatMap(x => ids(x.formula_ids)))];
   let sims = []; try { sims = ls?.sim_json ? JSON.parse(ls.sim_json) : []; } catch (e) { }
@@ -1105,6 +1108,73 @@ function lessonHtml(code) {
   ].join('');
   const basic = !ls ? `<p class="note small">LOS này hiện có bài cơ bản (tóm tắt, VAS, IFRS, khái niệm, từ vựng). Bài 13 phần đầy đủ sẽ được soạn sau khi chị duyệt 5 bài mẫu.</p>` : '';
   return head + basic + body + `<div class="row"><button class="${S.prog.lesson[code] ? '' : 'primary'}" id="lsDone">${S.prog.lesson[code] ? '✓ Đã học ngày ' + esc(S.prog.lesson[code].d) : 'Đánh dấu đã học'}</button></div>`;
+}
+
+/* ---------- v1.3 – bài giảng Smart Train theo slide + bổ sung IMA (sheet "kparts") ---------- */
+/* block: st = nội dung slide (chỉ trong file riêng), ai = lời giải/diễn giải của AI, ima = bổ sung theo IMA, note = ghi chú lệch */
+const KP_BLOCK = { st: ['Smart Train', ''], ima: ['Bổ sung theo IMA', 'ok'], note: ['Ghi chú lệch', 'bad'], ai: ['Diễn giải của AI – cần xác minh', 'warn'] };
+function kpRowsOf(code) {
+  return (S.data.kparts || []).filter(r => r.los === code).sort((a, b) => ((+a.slide || 0) - (+b.slide || 0)) || ((+a.order || 0) - (+b.order || 0)));
+}
+function kpPill(b, slide) { const [t, c] = KP_BLOCK[b] || KP_BLOCK.ai; return `<span class="pill ${c}">[${esc(t)}${b === 'st' && slide ? ', slide ' + esc(slide) : ''}]</span>`; }
+function kpVi(vi, inline) {
+  if (!vi) return '';
+  return viLv() === 1 ? `<div class="vi kvi">${inline ? vi : esc(vi)}</div>` : `<details class="kvd"><summary>Tiếng Việt</summary><div class="vi kvi">${inline ? vi : esc(vi)}</div></details>`;
+}
+function kpSents(t) { return String(t || '').split(/(?<=[.!?])\s+(?=[A-Z"(])/).map(x => x.trim()).filter(Boolean).map(x => `<span class="ks">${spk(x)} ${sayBtns(x)}</span>`).join(' '); }
+function kpTable(en, vi) {
+  const tb = (t, say) => {
+    const rows = String(t || '').split('\n').map(r => r.split(' | '));
+    return `<div class="tscroll"><table class="ktab">${rows.map((r, i) => `<tr>${r.map(c => i ? `<td>${say ? spk(c) : esc(c)}</td>` : `<th>${esc(c)}</th>`).join('')}${say ? `<td class="ksay">${i ? sayBtns(r.join(', ')) : ''}</td>` : ''}</tr>`).join('')}</table></div>`;
+  };
+  return `<div class="en">${tb(en, true)}</div>` + (vi ? (viLv() === 1 ? `<div class="vi">${tb(vi)}</div>` : `<details class="kvd"><summary>Bảng tiếng Việt</summary>${tb(vi)}</details>`) : '');
+}
+function kpLine(r) {
+  const k = r.kind || 'p';
+  if (k === 'table') return `<div class="kl ktb">${kpTable(r.en, r.vi)}</div>`;
+  if (k === 'h') return `<div class="kl kh"><h4 class="en">${spk(r.en)} ${sayBtns(r.en)}</h4>${r.vi ? `<div class="vi">${esc(r.vi)}</div>` : ''}</div>`;
+  if (k === 'ans') return `<details class="kl kans"><summary>Lời giải ${kpPill('ai')}</summary><p class="en">${kpSents(r.en)}</p>${r.vi ? `<div class="vi kvi">${esc(r.vi)}</div>` : ''}</details>`;
+  const cls = { li: 'kli', li2: 'kli kli2', q: 'kq', formula: 'kf' }[k] || 'kp';
+  return `<div class="kl ${cls}">${k === 'q' ? '<b>❓</b> ' : ''}<span class="en">${kpSents(r.en)}</span>${kpVi(r.vi)}</div>`;
+}
+/* nhóm các dòng liên tiếp cùng slide (bài giảng) hoặc cùng loại khối (bổ sung) */
+function kpGroups(rows, keyFn) { const g = []; for (const r of rows) { const k = keyFn(r); if (!g.length || g[g.length - 1].k !== k) g.push({ k, rows: [] }); g[g.length - 1].rows.push(r); } return g; }
+function kpLecture(code) {
+  const rows = kpRowsOf(code).filter(r => r.slide && r.slide !== '');
+  const has = rows.some(r => r.block === 'st');
+  if (!has) return `<p class="note small">Nội dung slide Smart Train của LOS này nằm trong file riêng <b>CMA_data_private.xlsx</b> (sheet "kparts"), không đưa lên mạng vì có bản quyền. Vào <a href="#/data">Dữ liệu</a> và nhập file để xem đầy đủ.</p>`;
+  return kpGroups(rows, r => String(r.slide)).map(g => `<div class="kslide"><div class="row small"><span class="pill">Slide ${esc(g.k)}</span>${[...new Set(g.rows.map(r => r.block))].map(b => kpPill(b, g.k)).join('')}</div>${g.rows.map(r => r.block === 'note' ? `<div class="kl knote">${kpPill('note')} <span class="en">${kpSents(r.en)}</span>${kpVi(r.vi)}</div>` : kpLine(r)).join('')}</div>`).join('');
+}
+function kpSupplement(code) {
+  const rows = kpRowsOf(code).filter(r => !(r.slide && r.slide !== '') || r.block === 'note').filter(r => r.block !== 'st');
+  return kpGroups(rows, r => r.block).map(g => `<div class="kslide"><div class="row small">${kpPill(g.k)}</div>${g.rows.map(kpLine).join('')}</div>`).join('');
+}
+function kpCount(code) { const r = kpRowsOf(code); return { st: new Set(r.filter(x => x.block === 'st').map(x => x.slide)).size, sup: r.filter(x => x.block !== 'st').length }; }
+function lessonHtmlSt(code) {
+  const l = S.byLos[code], ls = S.byId.lessons?.[code] || {};
+  const cs = S.data.concepts.filter(c => c.los === code), vs = S.data.vocab.filter(v => v.los === code);
+  const fs = ls.formula_ids ? ids(ls.formula_ids) : [...new Set(S.data.mcq.filter(x => x.los === code).flatMap(x => ids(x.formula_ids)))];
+  let sims = []; try { sims = ls.sim_json ? JSON.parse(ls.sim_json) : []; } catch (e) { }
+  const bank = ids(ls.quiz_ids).filter(id => S.byId.mcq[id]);
+  const T = 'Trọng tâm thi', X = 'Mở rộng CFO';
+  const head = `<div class="card"><div class="row"><b>${esc(shortLos(code))}</b><span class="pill ok">${esc(ls.focus || T)}</span>${coverPill(l.coverage)}${ls.los ? srcPill(ls) : ''}${ls.review_status ? `<span class="pill warn">${esc(ls.review_status)}</span>` : ''}</div>
+    <h2 class="en" style="margin:8px 0 2px">${spk(l.title_en)} ${sayBtns(l.title_en)}</h2><p class="vi" style="margin:0">${esc(l.title_vi)}</p></div>`;
+  const P = [
+    ['Mục tiêu và tóm tắt LOS', bullets(ls.objectives_vi) + `<h4>LOS (tiếng Anh) ${aiPill('AI tóm tắt – cần xác minh')}</h4>` + splitSent(l.summary_en).map(s => `<p class="en">${spk(s)} ${sayBtns(s)}</p>`).join('') + kpVi(l.summary_vi), T],
+    ['Bài giảng Smart Train (song ngữ từng câu)', viCtl() + kpLecture(code), T],
+    ['Công thức', fs.map(f => fmlBox(f)).join(''), T],
+    ['Ví dụ số và bút toán', ls.journal_vi ? paras(ls.journal_vi) + `<div class="small">${aiPill('Diễn giải của AI – số tự đặt, cần xác minh')}</div>` : '', T],
+    ['Bổ sung theo IMA và ghi chú lệch', kpSupplement(code), T],
+    ['Khái niệm và từ vựng chính', (cs.length ? `<div class="chips">${cs.map(c => conceptChip(c.id)).join('')}</div>` : '') + (vs.length ? `<ul class="list">${vs.slice(0, 12).map(wordRow).join('')}</ul>` : ''), T],
+    ['US GAAP, IFRS và VAS', (l.ifrs_compare ? `<p>${esc(l.ifrs_compare)}</p>` : '') + paras(ls.ifrs_detail_vi) + (ls.vas_detail_vi ? `<h4>So sánh với VAS ${aiPill('Cần xác minh')}</h4>` + paras(ls.vas_detail_vi) : ''), T],
+    ['Ứng dụng cho CFO (Phú Cường, cọc bê tông)', bullets(ls.cfo_vi), X],
+    ['Lỗi hay gặp và mẹo thi', bullets(ls.mistakes_vi) + (ls.takeaways_vi ? `<h4>Ghi nhớ nhanh và mẹo thi</h4>${bullets(ls.takeaways_vi)}` : ''), T],
+    ['Câu hỏi ôn tập', sims.map((q, i) => `<div class="simq"><p class="en"><b>${i + 1}.</b> ${spk(q.q)} ${sayBtns(q.q)}</p>${['A', 'B', 'C', 'D'].map(k => `<div class="small">${k}. ${esc(q[k])}</div>`).join('')}
+        <details><summary>Đáp án</summary><p><b>${esc(q.answer)}</b> – ${esc(q.explain_vi)}</p></details><div class="small">${aiPill('Câu mô phỏng – AI viết, cần xác minh')}</div></div>`).join('')
+      + (bank.length ? `<p class="small" style="margin-top:10px">Câu trong ngân hàng nên làm: ${bank.map(id => `<a class="chip" href="#/exam/mcq?id=${encodeURIComponent(id)}">${esc(id)} · ${DIFF_VI[S.byId.mcq[id].difficulty] || ''}</a>`).join(' ')}</p>` : ''), T],
+    ['Nguồn và nhãn', `<p>${kpPill('st')} nội dung slide Smart Train chị cung cấp, chép nguyên văn tiếng Anh, AI dịch tiếng Việt.</p><p>${kpPill('ima')} phần LOS IMA 01/09/2024 yêu cầu mà slide chưa có; AI soạn, cần chị xác minh.</p><p>${kpPill('note')} chỗ slide khác quy định hiện hành.</p><p>${kpPill('ai')} lời giải, ví dụ số, liên hệ VAS và CFO do AI viết.</p>`, '']
+  ].filter(p => p[1]);
+  return head + P.map((p, i) => part(i + 1, p[0], p[1], p[2])).join('') + `<div class="row"><button class="${S.prog.lesson[code] ? '' : 'primary'}" id="lsDone">${S.prog.lesson[code] ? '✓ Đã học ngày ' + esc(S.prog.lesson[code].d) : 'Đánh dấu đã học'}</button></div>`;
 }
 function conceptPane(code) {
   const cs = S.data.concepts.filter(c => c.los === code);
