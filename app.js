@@ -1,7 +1,7 @@
 /* CMA Study – PWA học tiếng Anh kế toán và luyện thi CMA Part 1.
    Không cần build. Dữ liệu: data/public.json (nội dung tự soạn) + file Excel người dùng nhập (lưu IndexedDB). */
 'use strict';
-const APP_VERSION = '1.5.1';
+const APP_VERSION = '1.6.0';
 const TYPES = ['vocab', 'los', 'sentences', 'mcq', 'cbq', 'cfo', 'glossary', 'formulas', 'concepts', 'lessons', 'kparts'];
 const TYPE_VI = { vocab: 'Từ vựng', los: 'LOS', sentences: 'Câu song ngữ', mcq: 'Câu MCQ', cbq: 'Câu CBQ', cfo: 'Mẫu câu CFO', glossary: 'Từ điển chung', formulas: 'Công thức', concepts: 'Khái niệm', lessons: 'Bài học', kparts: 'Bài giảng slide' };
 const KEY = {
@@ -132,8 +132,8 @@ const S = {
   settings: { rate: 0.95, slow: 0.65, voice: '', examDate: '2027-05-01', newPerDay: 10, autoSpeak: true, theme: '', showVi: true, viLevel: 0, fDiff: '', fType: '' }
 };
 let saveTimer;
-function saveProg() { clearTimeout(saveTimer); saveTimer = setTimeout(() => store.set('prog', S.prog), 300); }
-function saveSettings() { store.set('settings', S.settings); applyTheme(); }
+function saveProg() { S.prog.upd = Date.now(); clearTimeout(saveTimer); saveTimer = setTimeout(() => store.set('prog', S.prog), 300); }
+function saveSettings() { S.settings.upd = Date.now(); store.set('settings', S.settings); applyTheme(); }
 function logStudy(kind) { const d = today(); S.prog.log[d] = S.prog.log[d] || {}; S.prog.log[d][kind] = (S.prog.log[d][kind] || 0) + 1; }
 function applyTheme() { if (S.settings.theme) document.documentElement.dataset.theme = S.settings.theme; else delete document.documentElement.dataset.theme; }
 
@@ -1655,9 +1655,11 @@ on(/^\/data$/, async () => {
     <p class="small muted">File chứa câu hỏi có bản quyền (Gleim) nằm riêng ở <b>CMA_data_private.xlsx</b>, không đưa lên mạng. Nhập file đó trên từng máy.</p>
   </div>
 
+  <h3>Đồng bộ nhiều máy</h3>
+  ${syncHtml()}
   <h3>Sao lưu và chuyển máy</h3>
   <div class="card">
-    <p class="small">Dữ liệu và tiến độ chỉ lưu trên máy này${persisted === true ? ' (đã bật lưu trữ bền vững)' : persisted === false ? ' (trình duyệt có thể xóa khi máy thiếu dung lượng, nên sao lưu định kỳ)' : ''}. Sao lưu ra file để chuyển sang điện thoại hoặc máy khác.</p>
+    <p class="small">${S.settings.syncOn ? 'Tiến độ được đồng bộ qua tài khoản Google; dữ liệu nhập từ file riêng chỉ lưu trên máy này' : 'Dữ liệu và tiến độ chỉ lưu trên máy này'}${persisted === true ? ' (đã bật lưu trữ bền vững)' : persisted === false ? ' (trình duyệt có thể xóa khi máy thiếu dung lượng, nên sao lưu định kỳ)' : ''}. Sao lưu ra file để chuyển sang điện thoại hoặc máy khác.</p>
     <div class="row"><button id="bk">⬇ Sao lưu (tiến độ + dữ liệu đã nhập)</button><label class="btn">⬆ Khôi phục từ file sao lưu<input type="file" id="rs" accept=".json" hidden></label></div>
     <div class="row" style="margin-top:8px"><button id="clrImp">Xóa dữ liệu đã nhập</button><button id="clrProg">Xóa toàn bộ tiến độ</button></div>
   </div>
@@ -1687,6 +1689,7 @@ on(/^\/data$/, async () => {
   <div id="install"></div>
   <p class="small muted">Phiên bản ${APP_VERSION} · dữ liệu ${esc(S.pub.version)} · ${navigator.serviceWorker?.controller ? 'đã sẵn sàng chạy offline' : 'đang chuẩn bị chế độ offline (mở lại trang 1 lần)'}</p>`);
   renderInstall();
+  if (S.settings.syncOn && !SYNC.user) fbInit().then(syncUi).catch(() => { });
   $('#fileIn').onchange = async e => {
     const out = [];
     for (const f of e.target.files) { try { out.push(`<b>${esc(f.name)}</b><br>` + await importFile(f)); } catch (err) { out.push(`<b>${esc(f.name)}</b>: không đọc được (${esc(err.message)})`); } }
@@ -1701,7 +1704,7 @@ on(/^\/data$/, async () => {
     } catch (err) { toast('Không khôi phục được: ' + esc(err.message)); }
   };
   $('#clrImp').onclick = async () => { if (!confirm('Xóa toàn bộ dữ liệu chị đã nhập (kể cả câu Gleim)? Tiến độ vẫn giữ.')) return; S.imp = {}; await store.set('imp', S.imp); rebuild(); route(); };
-  $('#clrProg').onclick = async () => { if (!confirm('Xóa toàn bộ tiến độ học? Nên sao lưu trước.')) return; S.prog = { srs: {}, mcq: {}, dict: {}, cbq: {}, newDay: { d: '', n: 0 }, log: {}, tr: {}, explain: {}, viStat: {}, lesson: {} }; migrateProg(S.prog); S.prog.vHad = false; await store.set('prog', S.prog); route(); };
+  $('#clrProg').onclick = async () => { if (!confirm('Xóa toàn bộ tiến độ học? Nên sao lưu trước.' + (S.settings.syncOn ? ' Đang bật đồng bộ: lần đồng bộ sau sẽ tải lại tiến độ trên mạng; muốn xóa hẳn thì đăng xuất đồng bộ trước.' : ''))) return; S.prog = { srs: {}, mcq: {}, dict: {}, cbq: {}, newDay: { d: '', n: 0 }, log: {}, tr: {}, explain: {}, viStat: {}, lesson: {} }; migrateProg(S.prog); S.prog.vHad = false; await store.set('prog', S.prog); route(); };
   const bind = (id, k, f = x => x) => { const el = $('#' + id); if (el) el.onchange = e => { S.settings[k] = f(e.target.type === 'checkbox' ? e.target.checked : e.target.value); saveSettings(); }; };
   bind('vSel', 'voice'); bind('exD', 'examDate'); bind('npd', 'newPerDay', x => Math.max(0, +x || 0)); bind('aSp', 'autoSpeak'); bind('thm', 'theme');
   $('#viLv').onchange = e => { setViLevel(+e.target.value); $('#viNote').textContent = VI_LEVEL_NOTE[viLv()]; };
@@ -2059,6 +2062,160 @@ document.addEventListener('click', e => {
   const box = $('#tutor'); if (box) box.outerHTML = tutorCard(TUT.x, TUT.pick);
 });
 
+/* ---------- GIAI ĐOẠN D phần 2: Đồng bộ nhiều máy qua Firebase (tài khoản Google của chị) ----------
+   Chỉ đồng bộ tiến độ (S.prog) và cài đặt học. KHÔNG đưa dữ liệu đã nhập từ file riêng (S.imp: câu Gleim,
+   slide Smart Train) lên mạng. Gộp hai phía theo nguyên tắc "giữ bản đã làm nhiều hơn", không cộng dồn,
+   nên đồng bộ bao nhiêu lần cũng không nhân đôi số liệu. Firestore: users/{uid} (mô tả) + users/{uid}/parts/p0..pn. */
+const FB_CFG = {
+  apiKey: 'AIzaSyDcgW8Jdn-DChTegbyacwOBnQPmxJDruoA', authDomain: 'cma-study-a5f20.firebaseapp.com', projectId: 'cma-study-a5f20',
+  storageBucket: 'cma-study-a5f20.firebasestorage.app', messagingSenderId: '428737983351', appId: '1:428737983351:web:175d65163349a8b9282772'
+};
+const SYNC = { ready: null, auth: null, db: null, user: null, busy: false, err: '', last: null };
+const SYNC_LOCAL = ['voice', 'rate', 'slow', 'theme', 'autoSpeak', 'syncOn', 'syncAt', 'syncInfo', 'upd'];
+const SYNC_CHUNK = 250000;
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    const s = document.createElement('script'); s.src = src;
+    s.onload = res; s.onerror = () => rej(new Error('không tải được thư viện đồng bộ (cần mạng lần đầu)'));
+    document.head.appendChild(s);
+  });
+}
+function fbInit() {
+  if (SYNC.ready) return SYNC.ready;
+  SYNC.ready = (async () => {
+    if (!window.firebase) for (const f of ['app', 'auth', 'firestore']) await loadScript(`lib/fb/firebase-${f}-compat.js`);
+    if (!firebase.apps.length) firebase.initializeApp(FB_CFG);
+    SYNC.auth = firebase.auth(); SYNC.db = firebase.firestore();
+    await new Promise(res => { let first = true; SYNC.auth.onAuthStateChanged(u => { SYNC.user = u || null; if (first) { first = false; res(); } else syncUi(); }); });
+  })().catch(e => { SYNC.ready = null; throw e; });
+  return SYNC.ready;
+}
+function fbErr(e) {
+  const c = String(e?.code || ''), m = String(e?.message || e || '');
+  if (/popup-closed|cancelled-popup/.test(c)) return 'Chị đã đóng cửa sổ đăng nhập trước khi xong.';
+  if (/popup-blocked/.test(c)) return 'Trình duyệt chặn cửa sổ đăng nhập. Chị cho phép cửa sổ bật lên (pop-up) rồi bấm lại.';
+  if (/unauthorized-domain/.test(c)) return 'Tên miền của tool chưa có trong Authentication › Settings › Authorized domains.';
+  if (/operation-not-allowed|configuration-not-found/.test(c)) return 'Chưa bật đăng nhập Google trong Authentication › Sign-in method.';
+  if (/network-request-failed|unavailable/.test(c)) return 'Mất kết nối mạng, tool sẽ thử lại sau.';
+  if (/permission-denied/.test(c)) return 'Firestore từ chối: chưa dán quy tắc bảo mật (Rules) hoặc dán chưa đúng.';
+  if (/not-found|failed-precondition/.test(c) || /database .*does not exist/i.test(m)) return 'Chưa tạo Firestore Database trong project.';
+  if (/Phiên đăng nhập/.test(m)) return m;
+  return 'Lỗi đồng bộ: ' + (c ? c + ' – ' : '') + m.slice(0, 160);
+}
+function devName() { const u = navigator.userAgent; return /Android/.test(u) ? 'Android' : /iPhone|iPad/.test(u) ? 'iPhone/iPad' : /Windows/.test(u) ? 'Windows' : /Mac/.test(u) ? 'Mac' : 'máy khác'; }
+
+/* Gộp tiến độ hai máy: mỗi mục lấy bản có số lượt lớn hơn; nhật ký theo ngày lấy số lớn hơn; lượt làm hợp lại không trùng. */
+function pickMore(a = {}, b = {}, score, fix) {
+  const o = { ...a };
+  for (const [k, v] of Object.entries(b || {})) {
+    if (!(k in o) || !o[k]) o[k] = v;
+    else { const w = score(v) > score(o[k]) ? v : o[k]; o[k] = fix ? fix(w, o[k], v) : w; }
+  }
+  return o;
+}
+function mergeProg(L, R, rNewer) {
+  if (!R) return L;
+  const n = x => +x?.n || 0, best = (w, a, b) => ({ ...w, best: Math.max(+a.best || 0, +b.best || 0) });
+  const o = { ...R, ...L };
+  o.srs = pickMore(L.srs, R.srs, x => (+x.r || 0) + (+x.w || 0));
+  o.mcq = pickMore(L.mcq, R.mcq, n);
+  for (const k of ['dict', 'tr', 'cbq']) o[k] = pickMore(L[k], R[k], n, best);
+  o.explain = pickMore(L.explain, R.explain, n);
+  o.viStat = pickMore(L.viStat, R.viStat, n);
+  o.lesson = pickMore(L.lesson, R.lesson, () => 0);
+  o.log = { ...L.log };
+  for (const [d, x] of Object.entries(R.log || {})) { const m = o.log[d] = { ...(o.log[d] || {}) }; for (const [k, v] of Object.entries(x || {})) m[k] = Math.max(+m[k] || 0, +v || 0); }
+  o.min = { ...L.min }; for (const [d, v] of Object.entries(R.min || {})) o.min[d] = Math.max(+o.min[d] || 0, +v || 0);
+  const seen = new Set(), att = [];
+  for (const a of [...(L.att || []), ...(R.att || [])]) { const k = a.ts + '|' + a.q; if (!seen.has(k)) { seen.add(k); att.push(a); } }
+  o.att = att.sort((a, b) => a.ts - b.ts).slice(-ATT_MAX);
+  const ln = L.newDay || {}, rn = R.newDay || {};
+  o.newDay = ln.d === rn.d ? { d: ln.d, n: Math.max(+ln.n || 0, +rn.n || 0) } : (String(ln.d) > String(rn.d) ? ln : rn);
+  const lp = L.plan || { done: {} }, rp = R.plan || { done: {} };
+  o.plan = { ...(rNewer || !lp.start ? rp : lp), done: { ...rp.done, ...lp.done } };
+  for (const k of Object.keys(o.plan.done)) o.plan.done[k] = !!(lp.done?.[k] || rp.done?.[k]);
+  if (rNewer) { o.res = R.res ?? L.res; o.resEx = R.resEx ?? L.resEx; }
+  o.v = Math.max(+L.v || 1, +R.v || 1); o.upd = Math.max(+L.upd || 0, +R.upd || 0);
+  return o;
+}
+function syncedSettings() { const s = {}; for (const [k, v] of Object.entries(S.settings)) if (!SYNC_LOCAL.includes(k)) s[k] = v; return s; }
+
+async function syncNow(quiet) {
+  if (SYNC.busy) return;
+  if (!navigator.onLine) { if (!quiet) { SYNC.err = 'Không có mạng. Tiến độ vẫn lưu trên máy, tool sẽ đồng bộ khi có mạng.'; syncUi(); } return; }
+  SYNC.busy = true; SYNC.err = ''; syncUi();
+  try {
+    await fbInit();
+    const u = SYNC.auth.currentUser;
+    if (!u) { S.settings.syncOn = false; await store.set('settings', S.settings); throw new Error('Phiên đăng nhập đã hết. Chị bấm "Đăng nhập Google để đồng bộ" lại.'); }
+    const ref = SYNC.db.doc('users/' + u.uid), snap = await ref.get();
+    let meta = null, remote = null;
+    if (snap.exists) {
+      meta = snap.data();
+      const ps = await Promise.all(Array.from({ length: +meta.n || 0 }, (_, i) => ref.collection('parts').doc('p' + i).get()));
+      remote = JSON.parse(ps.map(p => p.data()?.s || '').join('') || 'null');
+    }
+    let got = 0;
+    if (remote?.prog) {
+      const rp = remote.prog; migrateProg(rp);
+      const before = Object.keys(S.prog.mcq).length + S.prog.att.length;
+      S.prog = mergeProg(S.prog, rp, (+rp.upd || 0) > (+S.prog.upd || 0));
+      got = Object.keys(S.prog.mcq).length + S.prog.att.length - before;
+      if (remote.settings && (+remote.settings.upd || 0) > (+S.settings.upd || 0)) for (const [k, v] of Object.entries(remote.settings)) if (!SYNC_LOCAL.includes(k)) S.settings[k] = v;
+      if (remote.settings?.upd) S.settings.upd = Math.max(+S.settings.upd || 0, +remote.settings.upd);
+    }
+    await store.set('prog', S.prog);
+    const json = JSON.stringify({ app: 'cma-study', v: 2, prog: S.prog, settings: { ...syncedSettings(), upd: S.settings.upd || 0 } });
+    const n = Math.max(1, Math.ceil(json.length / SYNC_CHUNK)), b = SYNC.db.batch();
+    for (let i = 0; i < n; i++) b.set(ref.collection('parts').doc('p' + i), { s: json.slice(i * SYNC_CHUNK, (i + 1) * SYNC_CHUNK) });
+    for (let i = n; i < (+meta?.n || 0); i++) b.delete(ref.collection('parts').doc('p' + i));
+    b.set(ref, { n, at: Date.now(), dev: devName(), app: APP_VERSION, size: json.length });
+    await b.commit();
+    S.settings.syncAt = Date.now(); S.settings.syncInfo = { got, prevDev: meta?.dev || '', prevAt: meta?.at || 0 };
+    await store.set('settings', S.settings); applyTheme();
+    SYNC.last = Date.now();
+    if (!quiet) toast(got > 0 ? `Đã đồng bộ, nhận thêm ${got} mục từ máy khác` : 'Đã đồng bộ');
+    if (got > 0 && !/^#\/(exam|study|cards|dict|read|tr|cbq)/.test(location.hash)) { rebuild(); route(); }
+  } catch (e) { SYNC.err = fbErr(e); console.warn('sync', e); }
+  finally { SYNC.busy = false; syncUi(); }
+}
+async function syncLogin() {
+  SYNC.err = ''; syncUi();
+  try {
+    await fbInit();
+    if (!SYNC.auth.currentUser) { const pv = new firebase.auth.GoogleAuthProvider(); pv.setCustomParameters({ prompt: 'select_account' }); await SYNC.auth.signInWithPopup(pv); }
+    SYNC.user = SYNC.auth.currentUser; S.settings.syncOn = true; await store.set('settings', S.settings);
+    await syncNow();
+  } catch (e) { SYNC.err = fbErr(e); syncUi(); }
+}
+async function syncLogout() {
+  if (!confirm('Đăng xuất đồng bộ? Tiến độ trên máy này vẫn giữ nguyên.')) return;
+  try { await fbInit(); await SYNC.auth.signOut(); } catch (e) { }
+  SYNC.user = null; S.settings.syncOn = false; await store.set('settings', S.settings); syncUi();
+}
+function syncHtml() {
+  const on = S.settings.syncOn, u = SYNC.user, at = S.settings.syncAt, inf = S.settings.syncInfo || {};
+  const when = t => t ? new Date(t).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) : '';
+  return `<div class="card" id="syncBox">
+    ${on ? `<p class="small">Đã bật đồng bộ${u?.email ? ` với <b>${esc(u.email)}</b>` : ''}. ${at ? `Lần gần nhất: <b>${esc(when(at))}</b>${inf.prevDev ? ` (trước đó máy ${esc(inf.prevDev)} lúc ${esc(when(inf.prevAt))})` : ''}.` : 'Chưa đồng bộ lần nào.'}</p>
+      <p class="small muted">Tool tự đồng bộ khi mở app, khi chuyển sang ứng dụng khác và mỗi 5 phút nếu có học thêm.</p>
+      <div class="row"><button type="button" class="primary" data-sync="now" ${SYNC.busy ? 'disabled' : ''}>${SYNC.busy ? 'Đang đồng bộ…' : '🔄 Đồng bộ ngay'}</button><button type="button" data-sync="out">Đăng xuất</button></div>`
+    : `<p class="small">Đăng nhập cùng một tài khoản Google trên máy tính và điện thoại, tiến độ học sẽ tự gộp giữa các máy.</p>
+      <div class="row"><button type="button" class="primary" data-sync="login" ${SYNC.busy ? 'disabled' : ''}>${SYNC.busy ? 'Đang kết nối…' : 'Đăng nhập Google để đồng bộ'}</button></div>`}
+    ${SYNC.err ? `<p class="small" style="color:var(--bad)">${esc(SYNC.err)}</p>` : ''}
+    <p class="small muted">Chỉ đồng bộ tiến độ và cài đặt học. Câu hỏi, slide nhập từ file riêng (Gleim, Smart Train) không đưa lên mạng: trên máy mới chị nhập lại file Excel riêng như cũ.</p></div>`;
+}
+function syncUi() { const el = $('#syncBox'); if (el) el.outerHTML = syncHtml(); }
+function syncDirty() { return (+S.prog.upd || 0) > (+S.settings.syncAt || 0) || (+S.settings.upd || 0) > (+S.settings.syncAt || 0); }
+function syncAuto(force) { if (S.settings.syncOn && navigator.onLine && (force || syncDirty())) syncNow(true); }
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-sync]'); if (!t) return;
+  const k = t.dataset.sync; if (k === 'login') syncLogin(); else if (k === 'now') syncNow(); else if (k === 'out') syncLogout();
+});
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') syncAuto(); });
+window.addEventListener('online', () => syncAuto(true));
+setInterval(() => { if (document.visibilityState === 'visible') syncAuto(); }, 5 * 60 * 1000);
+
 /* ---------- global events ---------- */
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-say]');
@@ -2111,6 +2268,7 @@ async function boot() {
   rebuild(); TTS.init();
   navigator.storage?.persist?.().catch(() => { });
   route();
+  if (S.settings.syncOn) setTimeout(() => syncAuto(true), 1500);
 }
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
