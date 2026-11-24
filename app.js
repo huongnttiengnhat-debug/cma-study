@@ -1,7 +1,7 @@
 /* CMA Study – PWA học tiếng Anh kế toán và luyện thi CMA Part 1.
    Không cần build. Dữ liệu: data/public.json (nội dung tự soạn) + file Excel người dùng nhập (lưu IndexedDB). */
 'use strict';
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.3.1';
 const TYPES = ['vocab', 'los', 'sentences', 'mcq', 'cbq', 'cfo', 'glossary', 'formulas', 'concepts', 'lessons', 'kparts'];
 const TYPE_VI = { vocab: 'Từ vựng', los: 'LOS', sentences: 'Câu song ngữ', mcq: 'Câu MCQ', cbq: 'Câu CBQ', cfo: 'Mẫu câu CFO', glossary: 'Từ điển chung', formulas: 'Công thức', concepts: 'Khái niệm', lessons: 'Bài học', kparts: 'Bài giảng slide' };
 const KEY = {
@@ -1124,7 +1124,7 @@ function kpVi(vi, inline) {
 function kpSents(t) { return String(t || '').split(/(?<=[.!?])\s+(?=[A-Z"(])/).map(x => x.trim()).filter(Boolean).map(x => `<span class="ks">${spk(x)} ${sayBtns(x)}</span>`).join(' '); }
 function kpTable(en, vi) {
   const tb = (t, say) => {
-    const rows = String(t || '').split('\n').map(r => r.split(' | '));
+    const rows = String(t || '').split('\n').map(r => r.split(/\s*\|\s*/));
     return `<div class="tscroll"><table class="ktab">${rows.map((r, i) => `<tr>${r.map(c => i ? `<td>${say ? spk(c) : esc(c)}</td>` : `<th>${esc(c)}</th>`).join('')}${say ? `<td class="ksay">${i ? sayBtns(r.join(', ')) : ''}</td>` : ''}</tr>`).join('')}</table></div>`;
   };
   return `<div class="en">${tb(en, true)}</div>` + (vi ? (viLv() === 1 ? `<div class="vi">${tb(vi)}</div>` : `<details class="kvd"><summary>Bảng tiếng Việt</summary>${tb(vi)}</details>`) : '');
