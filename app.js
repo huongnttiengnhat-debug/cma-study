@@ -1,16 +1,18 @@
 /* CMA Study – PWA học tiếng Anh kế toán và luyện thi CMA Part 1.
    Không cần build. Dữ liệu: data/public.json (nội dung tự soạn) + file Excel người dùng nhập (lưu IndexedDB). */
 'use strict';
-const APP_VERSION = '1.1.0';
-const TYPES = ['vocab', 'los', 'sentences', 'mcq', 'cbq', 'cfo', 'glossary'];
-const TYPE_VI = { vocab: 'Từ vựng', los: 'LOS', sentences: 'Câu song ngữ', mcq: 'Câu MCQ', cbq: 'Câu CBQ', cfo: 'Mẫu câu CFO', glossary: 'Từ điển chung' };
+const APP_VERSION = '1.2.0';
+const TYPES = ['vocab', 'los', 'sentences', 'mcq', 'cbq', 'cfo', 'glossary', 'formulas', 'concepts', 'lessons'];
+const TYPE_VI = { vocab: 'Từ vựng', los: 'LOS', sentences: 'Câu song ngữ', mcq: 'Câu MCQ', cbq: 'Câu CBQ', cfo: 'Mẫu câu CFO', glossary: 'Từ điển chung', formulas: 'Công thức', concepts: 'Khái niệm', lessons: 'Bài học' };
 const KEY = {
   vocab: r => r.id, los: r => r.los, sentences: r => r.id, mcq: r => r.id,
-  cbq: r => r.case_id + '#' + r.q_no, cfo: r => r.id, glossary: r => String(r.word).toLowerCase()
+  cbq: r => r.case_id + '#' + r.q_no, cfo: r => r.id, glossary: r => String(r.word).toLowerCase(),
+  formulas: r => r.id, concepts: r => r.id, lessons: r => r.los
 };
 const REQUIRED = {
   vocab: ['term', 'vi_meaning'], los: ['los', 'title_en'], sentences: ['en', 'vi'],
-  mcq: ['question', 'A', 'B', 'answer'], cbq: ['case_id', 'question', 'A', 'B', 'answer'], cfo: ['phrase_en', 'phrase_vi'], glossary: ['word', 'vi']
+  mcq: ['question', 'A', 'B', 'answer'], cbq: ['case_id', 'question', 'A', 'B', 'answer'], cfo: ['phrase_en', 'phrase_vi'], glossary: ['word', 'vi'],
+  formulas: ['id', 'name_en'], concepts: ['id', 'term_en'], lessons: ['los']
 };
 /* Nhãn nguồn thống nhất (giai đoạn a) */
 const SRC = {
@@ -126,8 +128,8 @@ const store = (() => {
 /* ---------- state ---------- */
 const S = {
   pub: null, imp: {}, data: {}, byId: {}, byLos: {}, termMap: {}, terms: [], gloss: {},
-  prog: { srs: {}, mcq: {}, dict: {}, cbq: {}, newDay: { d: '', n: 0 }, log: {}, tr: {}, explain: {}, viStat: {} },
-  settings: { rate: 0.95, slow: 0.65, voice: '', examDate: '2027-05-01', newPerDay: 10, autoSpeak: true, theme: '', showVi: true, viLevel: 0 }
+  prog: { srs: {}, mcq: {}, dict: {}, cbq: {}, newDay: { d: '', n: 0 }, log: {}, tr: {}, explain: {}, viStat: {}, lesson: {} },
+  settings: { rate: 0.95, slow: 0.65, voice: '', examDate: '2027-05-01', newPerDay: 10, autoSpeak: true, theme: '', showVi: true, viLevel: 0, fDiff: '', fType: '' }
 };
 let saveTimer;
 function saveProg() { clearTimeout(saveTimer); saveTimer = setTimeout(() => store.set('prog', S.prog), 300); }
@@ -366,6 +368,7 @@ function route() {
   TTS.stop();
   if (onLeave) { try { onLeave(); } catch (e) { } onLeave = null; }
   $('#toast').classList.remove('show');
+  document.body.classList.remove('wide');
   const h = location.hash.slice(1) || '/';
   const [path, qs] = h.split('?');
   const q = Object.fromEntries(new URLSearchParams(qs || ''));
@@ -415,8 +418,10 @@ on(/^\/$/, () => {
   </div>
   ${!TTS.ok ? `<div class="note">Trình duyệt này không có giọng đọc. Hãy mở bằng Chrome, Edge hoặc Safari.</div>` : ''}
   ${noVoice ? `<div class="note">Chưa thấy giọng đọc tiếng Anh (Mỹ) trên máy. Xem cách cài ở mục <a href="#/data">Dữ liệu › Giọng đọc</a>.</div>` : ''}
+  ${courseNext()}
   <h3>Hôm nay</h3>
   <div class="grid">
+    <a class="tile" href="#/course"><b>📚 My CMA Course</b><small>${courseSummary()}</small></a>
     <a class="tile" href="#/english/cards"><b>${due} thẻ đến hạn</b><small>+ ${nl} từ mới (giới hạn ${esc(S.settings.newPerDay)}/ngày)</small></a>
     <a class="tile" href="#/exam/mcq?mode=random&n=10"><b>10 câu MCQ</b><small>Đã làm ${att} lượt, đúng ${pct(cor, att)}%</small></a>
     <a class="tile" href="#/english/dict"><b>Nghe – chép 5 câu</b><small>Luyện nghe và chính tả</small></a>
@@ -954,11 +959,271 @@ on(/^\/know\/(.+)$/, ([code]) => {
   ${l.vas_compare ? `<div class="card"><h3 style="margin-top:0">So sánh với VAS</h3><p>${esc(l.vas_compare)}</p></div>` : ''}
   ${l.ifrs_compare ? `<div class="card"><h3 style="margin-top:0">US GAAP và IFRS</h3><p>${esc(l.ifrs_compare)}</p></div>` : ''}
   <div class="row">
-    ${nq ? `<a class="btn primary" href="#/exam/mcq?los=${encodeURIComponent(code)}">📝 Luyện ${nq} câu MCQ</a>` : '<span class="muted small">Chưa có câu MCQ cho LOS này.</span>'}
+    <a class="btn primary" href="#/study/${encodeURIComponent(code)}">📖 Học tích hợp${S.byId.lessons?.[code] ? ' (bài 13 phần)' : ''}</a>
+    ${nq ? `<a class="btn" href="#/exam/mcq?los=${encodeURIComponent(code)}">📝 Luyện ${nq} câu MCQ</a>` : '<span class="muted small">Chưa có câu MCQ cho LOS này.</span>'}
     ${cb.map(c => `<a class="btn" href="#/exam/cbq/${encodeURIComponent(c)}">📋 CBQ ${esc(c)}</a>`).join('')}
     ${ps.map(p => `<a class="btn" href="#/english/read/${encodeURIComponent(p.id)}">📖 ${esc(p.title)}</a>`).join('')}
   </div>
+  ${conceptList(code)}
   ${nv.length ? `<h3>Từ vựng của LOS này</h3><div class="card"><ul class="list">${nv.map(wordRow).join('')}</ul></div>` : ''}`);
+});
+
+/* ---------- v1.2 – giai đoạn b: khóa học, bài học 13 phần, khái niệm, công thức, QC ---------- */
+const DIFF_VI = { 1: 'Dễ', 2: 'Vừa', 3: 'Khó' };
+const TYPE_Q_VI = { MCQ: 'Lý thuyết', Calculation: 'Tính toán', Case: 'Tình huống' };
+const SECTIONS = [['A', 'External Financial Reporting Decisions', 'Báo cáo tài chính bên ngoài', 15], ['B', 'Planning, Budgeting, and Forecasting', 'Lập kế hoạch, ngân sách và dự báo', 20],
+  ['C', 'Performance Management', 'Quản trị hiệu quả hoạt động', 20], ['D', 'Cost Management', 'Quản trị chi phí', 15], ['E', 'Internal Controls', 'Kiểm soát nội bộ', 15], ['F', 'Technology and Analytics', 'Công nghệ và phân tích dữ liệu', 15]];
+/* 20 câu mẫu để chị duyệt (đủ 6 Unit, đủ 3 dạng, gồm câu bị gắn cờ) */
+const REVIEW_SAMPLE = ['A-U1-3-011', 'A-U4-2-013', 'A-U5-2-024', 'A-U4-4-002', 'A-U1-3-001', 'A-U3-5-018', 'A-U1-2-017', 'A-U1-2-012', 'A-U2-1-008', 'A-U2-4-005',
+  'A-U3-3-015', 'A-U3-5-008', 'A-U4-3-005', 'A-U4-3-009', 'A-U5-2-006', 'A-U5-1-009', 'A-U6-3-017', 'A-U6-2-015', 'A-U2-3-017', 'A-U3-1-001'];
+const REVIEW_CLASS = { 'Nghi sai đáp án': 'bad', 'Nghi theo chuẩn mực cũ': 'bad', 'Thiếu dữ liệu': 'bad', 'Cần rà soát': 'warn', 'Đã rà soát – có lưu ý': 'warn', 'Đã đối chiếu lời giải': 'ok' };
+const ids = s => String(s || '').split(/[\s,;]+/).filter(Boolean);
+function diffPill(x) { const d = +x.difficulty; return DIFF_VI[d] ? `<span class="pill" title="${esc(x.difficulty_basis || '')}">${DIFF_VI[d]}</span>` : ''; }
+function typePill(x) { return TYPE_Q_VI[x.q_type] ? `<span class="pill">${TYPE_Q_VI[x.q_type]}</span>` : ''; }
+function reviewPill(x) { return x.review_status ? `<span class="pill ${REVIEW_CLASS[x.review_status] || ''}">${esc(x.review_status)}</span>` : ''; }
+function fmlBox(fid, open) {
+  const f = S.byId.formulas?.[fid]; if (!f) return '';
+  return `<details class="fml" ${open ? 'open' : ''}><summary>∑ ${esc(f.name_vi)} <small class="muted">${esc(f.name_en)}</small></summary>
+    <p class="en mono-s">${esc(f.expr_en)}</p><p class="vi">${esc(f.expr_vi)}</p>
+    <div class="row small">${srcPill(f)}<a class="pill" href="#/know/${encodeURIComponent(f.los)}">LOS ${esc(shortLos(f.los))}</a></div></details>`;
+}
+function conceptChip(cid) { const c = S.byId.concepts?.[cid]; return c ? `<a class="chip" href="#/concept/${encodeURIComponent(cid)}"><b>${esc(c.term_en)}</b> · ${esc(c.term_vi)}</a>` : ''; }
+function qMeta(x) {
+  const fs = ids(x.formula_ids), cs = ids(x.concept_ids);
+  return `<div class="meta">
+    <div class="row small">${typePill(x)}${diffPill(x)}${reviewPill(x)}${x.los_confidence && x.los_confidence !== 'Khớp mục' ? `<span class="pill warn" title="${esc(x.los_note || '')}">LOS: ${esc(x.los_confidence)}</span>` : ''}</div>
+    ${x.review_note ? `<p class="small note">${esc(x.review_note)}</p>` : ''}
+    ${fs.length ? `<h4>Công thức và cách giải</h4>${fs.map(f => fmlBox(f, fs.length === 1)).join('')}` : ''}
+    ${cs.length ? `<h4>Khái niệm liên quan</h4><div class="chips">${cs.map(conceptChip).join('')}</div>` : ''}
+    ${x.source_ref ? `<p class="small muted">Nguồn: ${esc(x.source_ref)}${x.topic ? ' · ' + esc(x.topic) : ''}</p>` : ''}
+  </div>`;
+}
+/* bộ lọc độ khó và dạng câu (lưu trong cài đặt) */
+function poolFilter(pool) {
+  const d = +S.settings.fDiff, t = S.settings.fType;
+  return pool.filter(x => (!d || +x.difficulty === d) && (!t || x.q_type === t));
+}
+function filterCtl() {
+  const d = String(S.settings.fDiff || ''), t = S.settings.fType || '';
+  return `<div class="seg wrap"><span class="small muted">Độ khó:</span>${[['', 'Tất cả'], ['1', 'Dễ'], ['2', 'Vừa'], ['3', 'Khó']].map(([v, l]) => `<button data-fd="${v}" class="${d === v ? 'on' : ''}">${l}</button>`).join('')}</div>
+  <div class="seg wrap"><span class="small muted">Dạng:</span>${[['', 'Tất cả'], ['MCQ', 'Lý thuyết'], ['Calculation', 'Tính toán'], ['Case', 'Tình huống']].map(([v, l]) => `<button data-ft="${v}" class="${t === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+}
+function filterNote() {
+  const n = poolFilter(S.data.mcq).length;
+  return `Đang lọc: ${S.settings.fDiff ? DIFF_VI[S.settings.fDiff] : 'mọi độ khó'}, ${S.settings.fType ? TYPE_Q_VI[S.settings.fType] : 'mọi dạng'} · ${n}/${S.data.mcq.length} câu. Áp dụng cho luyện ngẫu nhiên, đề thử, câu sai, chủ đề yếu, theo LOS. Độ khó do AI chấm theo độ dài đề, số liệu, bảng và câu phủ định – cần chị xác nhận.`;
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-fd],[data-ft]'); if (!b) return;
+  if (b.dataset.fd !== undefined) S.settings.fDiff = b.dataset.fd; else S.settings.fType = b.dataset.ft;
+  saveSettings(); ex = null;
+  if (st && location.hash.startsWith('#/study/')) { st.ids = studyIds(st.los); st.i = 0; st.ans = {}; drawStudyQ(); } else route();
+});
+/* tiến độ theo LOS */
+function losProg(code) {
+  const qs = S.data.mcq.filter(x => x.los === code);
+  let done = 0, n = 0, c = 0;
+  for (const x of qs) { const a = S.prog.mcq[x.id]; if (a) { done++; n += a.n; c += a.c; } }
+  return { total: qs.length, done, acc: n ? pct(c, n) : null, read: !!S.prog.lesson[code], lesson: !!S.byId.lessons?.[code] };
+}
+function courseSummary() {
+  const los = S.data.los.filter(l => String(l.los).startsWith('1.A'));
+  const read = los.filter(l => S.prog.lesson[l.los]).length;
+  return `Section A: đã học ${read}/${los.length} LOS`;
+}
+function nextLos() { return S.data.los.slice().sort((a, b) => losOrder(a.los) - losOrder(b.los)).find(l => !S.prog.lesson[l.los]); }
+function courseNext() { const l = nextLos(); return l ? `<div class="card row"><div style="flex:1"><div class="small muted">Học tiếp</div><b>${esc(shortLos(l.los))} · ${esc(l.title_vi)}</b></div><a class="btn primary" href="#/study/${encodeURIComponent(l.los)}">Vào học ›</a></div>` : ''; }
+function conceptList(code) {
+  const cs = S.data.concepts.filter(c => c.los === code);
+  return cs.length ? `<h3>Khái niệm của LOS này</h3><div class="card"><div class="chips">${cs.map(c => conceptChip(c.id)).join('')}</div></div>` : '';
+}
+
+on(/^\/course$/, () => {
+  setTitle('My CMA Course');
+  const days = Math.ceil((new Date(S.settings.examDate) - new Date(today())) / 864e5);
+  const los = S.data.los.filter(l => String(l.los).startsWith('1.A')).sort((a, b) => losOrder(a.los) - losOrder(b.los));
+  const P = Object.fromEntries(los.map(l => [l.los, losProg(l.los)]));
+  const qa = los.reduce((s, l) => s + P[l.los].total, 0), qd = los.reduce((s, l) => s + P[l.los].done, 0);
+  const rd = los.filter(l => P[l.los].read).length;
+  const GN = { '1.A.1': 'A.1 Financial statements – Báo cáo tài chính', '1.A.2': 'A.2 Recognition, measurement, valuation, and disclosure – Ghi nhận, đo lường, đánh giá và thuyết minh' };
+  const groups = {}; for (const l of los) { const g = l.los.split('.').slice(0, 3).join('.'); (groups[g] = groups[g] || []).push(l); }
+  render(`
+  <div class="card">
+    <div class="row"><div style="flex:1"><b>CMA Part 1 – Financial Planning, Performance, and Analytics</b><br><small class="muted">Thi ${esc(S.settings.examDate)} · còn ${Math.max(0, days)} ngày</small></div></div>
+    <div class="kpis">
+      <div><div class="big">${rd}/${los.length}</div><small class="muted">LOS đã học</small></div>
+      <div><div class="big">${qd}/${qa}</div><small class="muted">câu đã làm</small></div>
+      <div><div class="big">${S.data.lessons.length}</div><small class="muted">bài 13 phần</small></div>
+    </div>
+    <div class="bar" title="LOS đã học"><i style="width:${pct(rd, los.length)}%"></i></div>
+  </div>
+  ${courseNext()}
+  <h3>Các Section của Part 1</h3>
+  <div class="card"><table><tr><th>Section</th><th class="num">Tỷ trọng</th><th>Trạng thái</th></tr>
+  ${SECTIONS.map(([k, en, vi, w]) => `<tr><td><b>${k}.</b> ${esc(en)}<br><small class="muted">${esc(vi)}</small></td><td class="num">${w}%</td><td>${k === 'A' ? '<span class="pill ok">Đang học</span>' : '<span class="pill">Chưa có trong tool</span>'}</td></tr>`).join('')}</table>
+  <p class="small muted">Tỷ trọng theo Content Specification Outlines của IMA hiệu lực 01/09/2024.</p></div>
+  ${Object.entries(groups).map(([g, ls]) => `<h3>${esc(GN[g] || g)}</h3><div class="card"><ul class="list">${ls.map(l => {
+    const p = P[l.los];
+    return `<li><a href="#/study/${encodeURIComponent(l.los)}"><b style="min-width:52px">${esc(shortLos(l.los))}</b>
+      <span style="flex:1">${esc(l.title_vi)}<br><span class="row small" style="gap:6px;margin-top:3px">${p.lesson ? '<span class="pill ok">Bài 13 phần</span>' : '<span class="pill">Bài cơ bản</span>'}${p.read ? '<span class="pill ok">✓ Đã học</span>' : ''}${p.total ? `<span class="muted">${p.done}/${p.total} câu</span>` : '<span class="muted">chưa có câu</span>'}${p.acc !== null ? `<span class="pill ${p.acc >= 70 ? 'ok' : 'bad'}">${p.acc}%</span>` : ''}</span></span>
+      <span class="bar" style="width:70px"><i style="width:${pct(p.done, p.total)}%"></i></span></a></li>`;
+  }).join('')}</ul></div>`).join('')}`);
+});
+
+/* màn học tích hợp: bài học | luyện tập | khái niệm (máy tính: cạnh nhau; điện thoại: vuốt ngang) */
+let st = null;
+function part(n, title, body, tag) {
+  if (!body) return '';
+  return `<details class="part" ${n <= 3 ? 'open' : ''}><summary><span class="pn">${n}</span>${esc(title)}${tag ? ` <span class="pill ${tag === 'Mở rộng CFO' ? 'warn' : 'ok'}">${tag}</span>` : ''}</summary><div class="pb">${body}</div></details>`;
+}
+const paras = t => String(t || '').split(/\n+/).filter(Boolean).map(s => `<p>${esc(s)}</p>`).join('');
+const bullets = t => { const a = String(t || '').split(/\n+/).filter(Boolean); return a.length ? `<ul>${a.map(s => `<li>${esc(s)}</li>`).join('')}</ul>` : ''; };
+function lessonHtml(code) {
+  const l = S.byLos[code], ls = S.byId.lessons?.[code];
+  const cs = S.data.concepts.filter(c => c.los === code), vs = S.data.vocab.filter(v => v.los === code);
+  const fs = ls ? ids(ls.formula_ids) : [...new Set(S.data.mcq.filter(x => x.los === code).flatMap(x => ids(x.formula_ids)))];
+  let sims = []; try { sims = ls?.sim_json ? JSON.parse(ls.sim_json) : []; } catch (e) { }
+  const bank = ls ? ids(ls.quiz_ids).filter(id => S.byId.mcq[id]) : [];
+  const T = 'Trọng tâm thi', X = 'Mở rộng CFO';
+  const head = `<div class="card"><div class="row"><b>${esc(shortLos(code))}</b>${ls ? `<span class="pill ok">${esc(ls.focus || T)}</span>` : ''}${coverPill(l.coverage)}${ls ? srcPill(ls) : ''}${ls?.review_status ? `<span class="pill warn">${esc(ls.review_status)}</span>` : ''}</div>
+    <h2 class="en" style="margin:8px 0 2px">${spk(l.title_en)} ${sayBtns(l.title_en)}</h2><p class="vi" style="margin:0">${esc(l.title_vi)}</p></div>`;
+  const body = [
+    part(1, 'Mục tiêu học tập', ls ? bullets(ls.objectives_vi) : '', T),
+    part(2, 'Tóm tắt tiếng Anh', splitSent(l.summary_en).map(s => `<p class="en">${spk(s)} ${sayBtns(s)}</p>`).join(''), T),
+    part(3, 'Tóm tắt tiếng Việt', `<p>${esc(l.summary_vi)}</p>`, T),
+    part(4, 'Khái niệm và từ vựng chính', (cs.length ? `<div class="chips">${cs.map(c => conceptChip(c.id)).join('')}</div>` : '') + (vs.length ? `<ul class="list">${vs.slice(0, 12).map(wordRow).join('')}</ul>` : ''), T),
+    part(5, 'Công thức', fs.map(f => fmlBox(f)).join(''), T),
+    part(6, 'Ví dụ bút toán và tính toán', ls ? paras(ls.journal_vi) : '', T),
+    part(7, 'So sánh với VAS', ls ? paras(ls.vas_detail_vi) : (l.vas_compare ? `<p>${esc(l.vas_compare)}</p>` : ''), X),
+    part(8, 'US GAAP và IFRS', ls ? `<p>${esc(l.ifrs_compare || '')}</p>${paras(ls.ifrs_detail_vi)}` : (l.ifrs_compare ? `<p>${esc(l.ifrs_compare)}</p>` : ''), T),
+    part(9, 'Ứng dụng cho CFO', ls ? bullets(ls.cfo_vi) : '', X),
+    part(10, 'Lỗi thường gặp', ls ? bullets(ls.mistakes_vi) : '', T),
+    part(11, 'Ghi nhớ nhanh', ls ? bullets(ls.takeaways_vi) : '', T),
+    part(12, 'Câu hỏi ôn tập', sims.map((q, i) => `<div class="simq"><p class="en"><b>${i + 1}.</b> ${spk(q.q)}</p>${['A', 'B', 'C', 'D'].map(k => `<div class="small">${k}. ${esc(q[k])}</div>`).join('')}
+        <details><summary>Đáp án</summary><p><b>${esc(q.answer)}</b> – ${esc(q.explain_vi)}</p></details><div class="small">${aiPill('Câu mô phỏng – AI viết, cần xác minh')}</div></div>`).join('')
+      + (bank.length ? `<p class="small" style="margin-top:10px">Câu trong ngân hàng nên làm: ${bank.map(id => `<a class="chip" href="#/exam/mcq?id=${encodeURIComponent(id)}">${esc(id)} · ${DIFF_VI[S.byId.mcq[id].difficulty] || ''}</a>`).join(' ')}</p>` : ''), T),
+    part(13, 'Nhãn trọng tâm và nguồn', ls ? `<p><span class="pill ok">${esc(ls.focus)}</span> Các phần gắn "Mở rộng CFO" (VAS, ứng dụng) không thi nhưng hữu ích cho công việc.</p><p class="small muted">Bài học do AI soạn theo LOS IMA 01/09/2024 và tài liệu chị cung cấp. Trích dẫn VAS/TT/ASC/IFRS cần chị xác minh.</p>` : '', '')
+  ].join('');
+  const basic = !ls ? `<p class="note small">LOS này hiện có bài cơ bản (tóm tắt, VAS, IFRS, khái niệm, từ vựng). Bài 13 phần đầy đủ sẽ được soạn sau khi chị duyệt 5 bài mẫu.</p>` : '';
+  return head + basic + body + `<div class="row"><button class="${S.prog.lesson[code] ? '' : 'primary'}" id="lsDone">${S.prog.lesson[code] ? '✓ Đã học ngày ' + esc(S.prog.lesson[code].d) : 'Đánh dấu đã học'}</button></div>`;
+}
+function conceptPane(code) {
+  const cs = S.data.concepts.filter(c => c.los === code);
+  return `<h3 style="margin-top:0">Khái niệm (${cs.length})</h3>${cs.map(c => conceptCard(c, true)).join('') || '<p class="muted">Chưa có khái niệm.</p>'}`;
+}
+function conceptCard(c, compact) {
+  const fs = ids(c.formula_ids);
+  return `<div class="card concept"><div class="row"><b class="en">${esc(c.term_en)}</b>${sayBtns(c.term_en)}<span class="spacer"></span><a class="pill" href="#/concept/${encodeURIComponent(c.id)}">${esc(c.id)}</a></div>
+    <div class="ipa">${esc(c.ipa)}</div><p class="vi" style="margin:2px 0 6px"><b>${esc(c.term_vi)}</b></p>
+    <p class="en small">${spk(c.explain_en)}</p><p>${esc(c.explain_vi)}</p>
+    ${compact ? `<details><summary>VAS, IFRS, ví dụ, CFO</summary>` : ''}
+    <p><b>US GAAP và IFRS:</b> ${esc(c.gaap_ifrs)}</p>
+    <p><b>So sánh VAS:</b> ${esc(c.vas)}</p>
+    ${fs.length ? fs.map(f => fmlBox(f)).join('') : ''}
+    ${c.example_vi ? `<p><b>Ví dụ:</b> ${esc(c.example_vi)}</p>` : ''}
+    ${c.cfo_use ? `<p><b>Ứng dụng CFO:</b> ${esc(c.cfo_use)}</p>` : ''}
+    ${compact ? '</details>' : ''}
+    <div class="row small">${srcPill(c)}<span class="pill warn">${esc(c.review_status || 'Cần xác minh')}</span></div></div>`;
+}
+function studyIds(code) {
+  const pool = poolFilter(S.data.mcq.filter(x => x.los === code));
+  const fresh = pool.filter(x => !S.prog.mcq[x.id]).sort((a, b) => (+a.difficulty || 2) - (+b.difficulty || 2)), seen = pool.filter(x => S.prog.mcq[x.id]);
+  return fresh.concat(seen).map(x => x.id);
+}
+on(/^\/study\/(.+)$/, ([code]) => {
+  const l = S.byLos[code]; if (!l) return render('<p>Không tìm thấy LOS.</p>');
+  setTitle('Học ' + shortLos(code));
+  document.body.classList.add('wide');
+  if (!st || st.los !== code) st = { los: code, ids: studyIds(code), i: 0, ans: {}, pane: 0 };
+  render(`
+  <div class="stabs seg" role="tablist"><button data-pane="0" class="on">📖 Bài học</button><button data-pane="1">📝 Luyện tập</button><button data-pane="2">🧩 Khái niệm</button></div>
+  <div class="split" id="split">
+    <section class="pane pl" id="pLesson">${lessonHtml(code)}</section>
+    <section class="pane pp" id="pPractice"></section>
+    <section class="pane pc" id="pConcept">${conceptPane(code)}</section>
+  </div>`);
+  const sp = $('#split'), tabs = $$('.stabs button');
+  const setTab = i => tabs.forEach((b, j) => b.classList.toggle('on', i === j));
+  tabs.forEach(b => b.onclick = () => { const i = +b.dataset.pane; st.pane = i; const p = sp.children[i]; sp.scrollTo({ left: p.offsetLeft - sp.offsetLeft, behavior: 'smooth' }); setTab(i); });
+  sp.onscroll = () => { const i = Math.round(sp.scrollLeft / Math.max(1, sp.clientWidth)); if (i !== st.pane) { st.pane = i; setTab(i); } };
+  if (st.pane) requestAnimationFrame(() => { sp.scrollLeft = sp.children[st.pane].offsetLeft - sp.offsetLeft; setTab(st.pane); });
+  const bindLesson = () => {
+    const b = $('#lsDone'); if (!b) return;
+    b.onclick = () => { if (S.prog.lesson[code]) delete S.prog.lesson[code]; else { S.prog.lesson[code] = { d: today() }; logStudy('lesson'); } saveProg(); $('#pLesson').innerHTML = lessonHtml(code); bindLesson(); };
+  };
+  bindLesson(); drawStudyQ();
+});
+function drawStudyQ() {
+  const box = $('#pPractice'); if (!box) return;
+  const head = `<h3 style="margin-top:0">Luyện tập LOS ${esc(shortLos(st.los))}</h3>${filterCtl()}${viCtl()}`;
+  if (!st.ids.length) { box.innerHTML = head + `<p class="muted">Không có câu phù hợp bộ lọc.${S.data.mcq.some(x => x._src === 'imp') ? '' : ' Nhập file CMA_data_private.xlsx ở mục Dữ liệu để có thêm 453 câu.'}</p>`; return; }
+  if (st.i >= st.ids.length) st.i = 0;
+  const x = S.byId.mcq[st.ids[st.i]], picked = st.ans[x.id], opts = ['A', 'B', 'C', 'D'].filter(k => x[k] !== '' && x[k] != null);
+  box.innerHTML = head + `
+  <div class="row small muted" style="margin-bottom:6px"><span>Câu ${st.i + 1}/${st.ids.length}</span>${srcPill(x, 'mcq')}${diffPill(x)}${typePill(x)}${S.prog.mcq[x.id] ? `<span class="pill">đã làm ${S.prog.mcq[x.id].n} lần</span>` : ''}</div>
+  <div class="card">${qHtml(x, true)}${qViPart(x, opts)}<div class="row" style="margin:8px 0">${sayBtns(x.question, 'câu hỏi')}</div>
+    ${opts.map(k => optHtml(x, k, picked ? (k === x.answer ? 'right' : k === picked ? 'wrong' : '') : '', true)).join('')}</div>
+  ${picked ? `<div class="card"><h3 style="margin-top:0">${picked === x.answer ? '✓ Đúng' : `✗ Sai – đáp án ${esc(x.answer)}`}</h3><p>${esc(x.explain_vi)}</p>
+    <details><summary>Giải thích tiếng Anh</summary>${splitSent(x.explain_en).map(s => `<p class="en">${spk(s)} ${sayBtns(s)}</p>`).join('')}</details>${qMeta(x)}</div>` : ''}
+  <div class="row">${st.i > 0 ? '<button id="sPrev">‹ Câu trước</button>' : ''}<span class="spacer"></span>${picked ? `<button class="primary" id="sNext">${st.i + 1 < st.ids.length ? 'Câu tiếp ›' : 'Làm lại từ đầu'}</button>` : ''}</div>`;
+  $$('.opt', box).forEach(b => b.onclick = () => { if (st.ans[x.id]) return; const k = b.dataset.k; st.ans[x.id] = k; recordQ(x, k === x.answer); viRecord(k === x.answer); drawStudyQ(); });
+  $('#sPrev') && ($('#sPrev').onclick = () => { st.i--; drawStudyQ(); });
+  $('#sNext') && ($('#sNext').onclick = () => { st.i = st.i + 1 < st.ids.length ? st.i + 1 : 0; if (!st.i) st.ans = {}; drawStudyQ(); box.scrollIntoView({ block: 'start', behavior: 'smooth' }); });
+  bindDeepDive();
+}
+
+/* khái niệm và công thức */
+on(/^\/concepts$/, (_, q) => {
+  setTitle('Khái niệm Section A');
+  const f = q.los || '', k = (q.q || '').toLowerCase();
+  const list = S.data.concepts.filter(c => (!f || c.los === f) && (!k || (c.term_en + ' ' + c.term_vi).toLowerCase().includes(k)));
+  render(`<p class="small muted">${S.data.concepts.length} khái niệm, mỗi khái niệm 11 trường: mã, thuật ngữ, IPA, nghĩa Việt, giải thích Anh/Việt, US GAAP–IFRS, VAS, công thức, ví dụ, ứng dụng CFO, nguồn. Tất cả do AI soạn, cần chị xác minh.</p>
+  <div class="row"><input type="text" id="cq" placeholder="Tìm khái niệm…" value="${esc(q.q || '')}" style="flex:1"></div>
+  <div class="card"><ul class="list">${list.sort((a, b) => losOrder(a.los) - losOrder(b.los) || a.id.localeCompare(b.id)).map(c => `<li><a href="#/concept/${encodeURIComponent(c.id)}"><b style="min-width:52px">${esc(shortLos(c.los))}</b><span style="flex:1">${esc(c.term_en)}<br><small class="muted">${esc(c.term_vi)}</small></span></a></li>`).join('')}</ul></div>`);
+  $('#cq').onchange = e => location.hash = '#/concepts?q=' + encodeURIComponent(e.target.value);
+});
+on(/^\/concept\/(.+)$/, ([cid]) => {
+  const c = S.byId.concepts?.[cid]; if (!c) return render('<p>Không tìm thấy khái niệm.</p>');
+  setTitle(c.term_en);
+  const qs = S.data.mcq.filter(x => ids(x.concept_ids).includes(cid));
+  render(`${conceptCard(c, false)}
+  <div class="row"><a class="btn primary" href="#/study/${encodeURIComponent(c.los)}">📖 Học LOS ${esc(shortLos(c.los))}</a></div>
+  ${qs.length ? `<h3>Câu hỏi liên kết (${qs.length})</h3><div class="card"><ul class="list">${qs.slice(0, 30).map(x => `<li><a href="#/exam/mcq?id=${encodeURIComponent(x.id)}">${diffPill(x)}${typePill(x)}<span style="flex:1">${esc(String(x.question).slice(0, 100))}…</span></a></li>`).join('')}</ul></div>` : ''}`);
+});
+on(/^\/formulas$/, () => {
+  setTitle('Thư viện công thức');
+  const use = {}; for (const x of S.data.mcq) for (const f of ids(x.formula_ids)) use[f] = (use[f] || 0) + 1;
+  render(`<p class="small muted">${S.data.formulas.length} công thức do AI tổng hợp từ lời giải trong tài liệu chị cung cấp, cần xác minh. Số bên phải là số câu đang dùng công thức đó.</p>
+  ${S.data.formulas.slice().sort((a, b) => losOrder(a.los) - losOrder(b.los)).map(f => `<div class="row" style="align-items:flex-start"><div style="flex:1">${fmlBox(f.id)}</div><span class="pill" style="margin-top:10px">${use[f.id] || 0} câu</span></div>`).join('')}`);
+});
+
+/* báo cáo QC tính trực tiếp từ dữ liệu đang có */
+on(/^\/data\/qc$/, () => {
+  setTitle('Báo cáo QC');
+  const Q = S.data.mcq, cnt = (a, f) => a.reduce((m, x) => { const k = f(x) || '(trống)'; m[k] = (m[k] || 0) + 1; return m; }, {});
+  const tbl = (o, h) => `<table><tr><th>${h}</th><th class="num">Số câu</th></tr>${Object.entries(o).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="num">${v}</td></tr>`).join('')}</table>`;
+  const noAns = Q.filter(x => !['A', 'B', 'C', 'D'].includes(x.answer) || !x[x.answer]);
+  const noExp = Q.filter(x => !String(x.explain_en || '').trim() && !String(x.explain_vi || '').trim());
+  const noLos = Q.filter(x => !S.byLos[x.los]);
+  const calcNoF = Q.filter(x => x.q_type === 'Calculation' && !ids(x.formula_ids).length);
+  const flagged = Q.filter(x => ['Nghi sai đáp án', 'Nghi theo chuẩn mực cũ', 'Thiếu dữ liệu', 'Cần rà soát', 'Đã rà soát – có lưu ý'].includes(x.review_status));
+  const empty = S.data.los.filter(l => !Q.some(x => x.los === l.los));
+  const priv = Q.filter(x => x._src === 'imp').length;
+  render(`
+  ${priv ? '' : '<div class="note">Chưa nhập file CMA_data_private.xlsx nên báo cáo chỉ tính câu mô phỏng.</div>'}
+  <div class="card"><table>
+    <tr><td>Tổng số câu MCQ</td><td class="num">${Q.length}</td></tr>
+    <tr><td>Thiếu đáp án hoặc đáp án không khớp phương án</td><td class="num">${noAns.length}</td></tr>
+    <tr><td>Thiếu lời giải</td><td class="num">${noExp.length}</td></tr>
+    <tr><td>Không phân loại được LOS (mã LOS không có trong danh mục)</td><td class="num">${noLos.length}</td></tr>
+    <tr><td>Câu tính toán chưa có công thức</td><td class="num">${calcNoF.length}</td></tr>
+    <tr><td>LOS chưa có câu hỏi</td><td class="num">${empty.length}</td></tr></table>
+    ${empty.length ? `<p class="small muted">LOS chưa có câu: ${empty.map(l => esc(shortLos(l.los))).join(', ')}</p>` : ''}</div>
+  <div class="row"><a class="btn primary" href="#/exam/mcq?sample=1">🧪 Duyệt mẫu 20 câu</a></div>
+  <h3>Trạng thái rà soát</h3><div class="card">${tbl(cnt(Q, x => x.review_status), 'Trạng thái')}</div>
+  <h3>Độ tin cậy khi gán LOS</h3><div class="card">${tbl(cnt(Q, x => x.los_confidence), 'Mức')}</div>
+  <h3>Dạng câu và độ khó</h3><div class="card">${tbl(cnt(Q, x => TYPE_Q_VI[x.q_type] || x.q_type), 'Dạng')}${tbl(cnt(Q, x => DIFF_VI[x.difficulty] || x.difficulty), 'Độ khó')}</div>
+  <h3>Câu cần chị xem (${flagged.length})</h3>
+  <div class="card"><ul class="list">${flagged.sort((a, b) => (REVIEW_CLASS[a.review_status] === 'bad' ? 0 : 1) - (REVIEW_CLASS[b.review_status] === 'bad' ? 0 : 1)).map(x => `<li><a href="#/exam/mcq?id=${encodeURIComponent(x.id)}">${reviewPill(x)}<span style="flex:1"><b>${esc(x.id)}</b> · ${esc(shortLos(x.los))}<br><small class="muted">${esc(x.review_note || x.los_note || '')}</small></span></a></li>`).join('')}</ul></div>`);
 });
 
 /* ---------- EXAM ---------- */
@@ -977,7 +1242,10 @@ on(/^\/exam$/, () => {
     <a class="tile" href="#/exam/mcq?mode=weak"><b>⚠ Chủ đề yếu</b><small>LOS đúng dưới 70%</small></a>
     <a class="tile" href="#/exam/cbq"><b>📋 Case-Based (CBQ)</b><small>Thay cho essay từ 2026</small></a>
     <a class="tile" href="#/exam/stats"><b>📊 Tiến độ</b><small>Tỷ lệ đúng theo LOS</small></a>
+    <a class="tile" href="#/course"><b>📚 My CMA Course</b><small>Học theo LOS: bài học + luyện tập</small></a>
   </div>
+  <h3>Bộ lọc câu hỏi</h3>
+  <div class="card">${filterCtl()}<p class="small muted" style="margin:0">${filterNote()}</p></div>
   <h3>Luyện theo LOS</h3>
   <div class="card row"><select id="losSel" style="flex:1">${los.map(l => { const c = S.data.mcq.filter(q => q.los === l.los).length; return c ? `<option value="${esc(l.los)}">${esc(shortLos(l.los))} – ${esc(l.title_vi)} (${c})</option>` : ''; }).join('')}</select>
   <button class="primary" id="goLos">Bắt đầu</button></div>
@@ -995,16 +1263,19 @@ on(/^\/exam\/mcq$/, (_, q) => {
   const key = JSON.stringify(q);
   if (!ex || ex.key !== key) {
     let pool = S.data.mcq;
+    if (q.id) pool = pool.filter(x => x.id === q.id);
+    if (q.sample) pool = REVIEW_SAMPLE.map(id => S.byId.mcq[id]).filter(Boolean);
     if (q.los) pool = pool.filter(x => x.los === q.los);
+    if (!q.id && !q.sample) pool = poolFilter(pool);
     if (q.mode === 'wrong') pool = pool.filter(x => S.prog.mcq[x.id] && !S.prog.mcq[x.id].last);
     if (q.mode === 'weak') { const w = new Set(weakLos(10).map(x => x.los)); pool = pool.filter(x => w.has(x.los)); }
     if (q.mode === 'random' || q.mode === 'timed') {
       // ưu tiên câu chưa làm
       const fresh = shuffle(pool.filter(x => !S.prog.mcq[x.id])), seen = shuffle(pool.filter(x => S.prog.mcq[x.id]));
       pool = fresh.concat(seen).slice(0, +q.n || 10); pool = shuffle(pool);
-    } else pool = shuffle(pool);
+    } else if (!q.sample) pool = shuffle(pool);
     const timed = q.mode === 'timed';
-    ex = { key, ids: pool.map(x => x.id), i: 0, ans: {}, timed, end: timed ? Date.now() + pool.length * 108e3 : 0, done: false, title: q.los ? 'LOS ' + shortLos(q.los) : (timed ? 'Đề thử' : 'Luyện MCQ') };
+    ex = { key, ids: pool.map(x => x.id), i: 0, ans: {}, timed, end: timed ? Date.now() + pool.length * 108e3 : 0, done: false, title: q.sample ? 'Mẫu duyệt 20 câu' : q.id ? 'Câu ' + q.id : q.los ? 'LOS ' + shortLos(q.los) : (timed ? 'Đề thử' : 'Luyện MCQ') };
   }
   drawQ();
 });
@@ -1021,7 +1292,7 @@ function drawQ() {
   const study = !ex.timed; // chế độ tính giờ: không tô màu, không dịch, không phân tích
   const lv = viLv();
   render(`
-  <div class="row small muted" style="margin-bottom:8px"><span>Câu ${ex.i + 1}/${ex.ids.length}</span><span class="pill">${esc(shortLos(x.los))}</span>${srcPill(x, 'mcq')}
+  <div class="row small muted" style="margin-bottom:8px"><span>Câu ${ex.i + 1}/${ex.ids.length}</span><span class="pill">${esc(shortLos(x.los))}</span>${srcPill(x, 'mcq')}${study ? diffPill(x) + typePill(x) : ''}
     ${ex.timed ? `<span class="spacer"></span><span class="timer" id="tmr"></span>` : ''}</div>
   ${study ? viCtl() : ''}
   <div class="card">
@@ -1040,7 +1311,8 @@ function drawQ() {
      <p>${esc(x.explain_vi)}</p>
      <details><summary>Giải thích tiếng Anh</summary>${splitSent(x.explain_en).map(s => `<p class="en">${spk(s)} ${sayBtns(s)}</p>`).join('')}</details>
      ${lv === 3 ? `<details><summary>Bản dịch câu hỏi và phương án</summary>${trBlock(x, opts)}</details>` : ''}
-     <div class="row small">${srcPill(x, 'mcq')}${srcType(x, 'mcq') === 'st' ? aiPill('Giải thích tiếng Việt: AI – cần xác minh') : ''}<a class="pill" href="#/know/${encodeURIComponent(x.los)}">Xem LOS ${esc(shortLos(x.los))}</a></div>
+     <div class="row small">${srcPill(x, 'mcq')}${srcType(x, 'mcq') === 'st' ? aiPill('Giải thích tiếng Việt: AI – cần xác minh') : ''}<a class="pill" href="#/study/${encodeURIComponent(x.los)}">Học LOS ${esc(shortLos(x.los))}</a></div>
+     ${qMeta(x)}
    </div>` : ''}
   ${study ? deepDive(x, opts, !!show) : ''}
   <div class="row">
@@ -1274,10 +1546,11 @@ on(/^\/data$/, async () => {
   <div class="card"><table><tr><th>Loại</th><th class="num">Có sẵn</th><th class="num">Chị nhập</th></tr>
   ${TYPES.map(t => { const [a, b] = cnt(t); return `<tr><td>${TYPE_VI[t]} <small class="muted">(sheet "${t}")</small></td><td class="num">${a}</td><td class="num">${b}</td></tr>`; }).join('')}</table></div>
 
+  <div class="row"><a class="btn" href="#/data/qc">🔎 Báo cáo QC ngân hàng câu hỏi</a><a class="btn" href="#/formulas">∑ Thư viện công thức</a><a class="btn" href="#/concepts">🧩 Khái niệm Section A</a></div>
   <h3>Nhập file Excel hoặc CSV</h3>
   <div class="card">
     ${oldImpNote()}
-    <p class="small">Mỗi sheet trong file Excel đặt tên đúng loại dữ liệu: <code>vocab</code>, <code>los</code>, <code>sentences</code>, <code>mcq</code>, <code>cbq</code>, <code>cfo</code>, <code>glossary</code>. Cột <code>source_type</code> (không bắt buộc) ghi nguồn: <code>ima</code>, <code>st</code> (tài liệu chị cung cấp), <code>ai</code>, <code>me</code> (chị tự nhập). Dòng 1 là tên cột (giữ như file mẫu). Dòng có cùng mã (<code>id</code>) sẽ ghi đè, dòng mới được thêm vào. Với file CSV, đặt tên file chứa loại dữ liệu, ví dụ <code>vocab.csv</code>.</p>
+    <p class="small">Mỗi sheet trong file Excel đặt tên đúng loại dữ liệu: <code>vocab</code>, <code>los</code>, <code>sentences</code>, <code>mcq</code>, <code>cbq</code>, <code>cfo</code>, <code>glossary</code>, <code>formulas</code>, <code>concepts</code>, <code>lessons</code>. Cột <code>source_type</code> (không bắt buộc) ghi nguồn: <code>ima</code>, <code>st</code> (tài liệu chị cung cấp), <code>ai</code>, <code>me</code> (chị tự nhập). Dòng 1 là tên cột (giữ như file mẫu). Dòng có cùng mã (<code>id</code>) sẽ ghi đè, dòng mới được thêm vào. Với file CSV, đặt tên file chứa loại dữ liệu, ví dụ <code>vocab.csv</code>.</p>
     <div class="row"><input type="file" id="fileIn" accept=".xlsx,.xls,.csv" multiple></div>
     <div id="impRes" class="small" style="margin-top:8px">${impMsg}</div>
     <div class="row" style="margin-top:8px"><a class="btn" href="data/CMA_data_public.xlsx" download>⬇ Tải file mẫu (toàn bộ dữ liệu có sẵn)</a></div>
@@ -1330,7 +1603,7 @@ on(/^\/data$/, async () => {
     } catch (err) { toast('Không khôi phục được: ' + esc(err.message)); }
   };
   $('#clrImp').onclick = async () => { if (!confirm('Xóa toàn bộ dữ liệu chị đã nhập (kể cả câu Gleim)? Tiến độ vẫn giữ.')) return; S.imp = {}; await store.set('imp', S.imp); rebuild(); route(); };
-  $('#clrProg').onclick = async () => { if (!confirm('Xóa toàn bộ tiến độ học? Nên sao lưu trước.')) return; S.prog = { srs: {}, mcq: {}, dict: {}, cbq: {}, newDay: { d: '', n: 0 }, log: {}, tr: {}, explain: {}, viStat: {} }; await store.set('prog', S.prog); route(); };
+  $('#clrProg').onclick = async () => { if (!confirm('Xóa toàn bộ tiến độ học? Nên sao lưu trước.')) return; S.prog = { srs: {}, mcq: {}, dict: {}, cbq: {}, newDay: { d: '', n: 0 }, log: {}, tr: {}, explain: {}, viStat: {}, lesson: {} }; await store.set('prog', S.prog); route(); };
   const bind = (id, k, f = x => x) => { const el = $('#' + id); if (el) el.onchange = e => { S.settings[k] = f(e.target.type === 'checkbox' ? e.target.checked : e.target.value); saveSettings(); }; };
   bind('vSel', 'voice'); bind('exD', 'examDate'); bind('npd', 'newPerDay', x => Math.max(0, +x || 0)); bind('aSp', 'autoSpeak'); bind('thm', 'theme');
   $('#viLv').onchange = e => { setViLevel(+e.target.value); $('#viNote').textContent = VI_LEVEL_NOTE[viLv()]; };
@@ -1379,7 +1652,7 @@ async function boot() {
   if (![1, 2, 3].includes(+S.settings.viLevel)) { S.settings.viLevel = S.settings.showVi === false ? 3 : 1; store.set('settings', S.settings); }
   applyTheme();
   S.prog = Object.assign(S.prog, await store.get('prog') || {});
-  for (const k of ['tr', 'explain', 'viStat']) if (!S.prog[k] || typeof S.prog[k] !== 'object') S.prog[k] = {};
+  for (const k of ['tr', 'explain', 'viStat', 'lesson']) if (!S.prog[k] || typeof S.prog[k] !== 'object') S.prog[k] = {};
   S.imp = await store.get('imp') || {};
   try { S.pub = await (await fetch('data/public.json')).json(); }
   catch (e) { render('<div class="card"><p>Không tải được dữ liệu. Hãy mở lại khi có mạng lần đầu để tool lưu offline.</p></div>'); return; }

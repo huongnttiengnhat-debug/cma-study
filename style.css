@@ -118,3 +118,31 @@ summary{cursor:pointer;font-weight:600}
 .seg.vilv{flex-wrap:wrap;overflow:visible;margin:0 0 10px;padding:0}
 .vilv button{min-height:34px}
 .vi-more summary{font-weight:500;color:var(--muted);font-size:14px}
+/* v1.2 – giai đoạn b: khóa học, học tích hợp, khái niệm, công thức */
+.seg.wrap{flex-wrap:wrap;overflow:visible;margin:0 0 8px;padding:0;align-items:center}
+.seg.wrap button{min-height:34px}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0 8px;text-align:center}
+.kpis .big{font-size:22px}
+.meta{border-top:1px solid var(--line);margin-top:10px;padding-top:8px}
+.meta h4{font-size:15px;margin:12px 0 6px;color:var(--brand)}
+.fml{border:1px solid var(--line);border-radius:10px;padding:6px 10px;margin:6px 0;background:var(--bg)}
+.fml summary{font-weight:600}
+.mono-s{font-family:ui-monospace,Consolas,"Courier New",monospace;font-size:14px}
+.part{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:10px 14px;margin:0 0 10px}
+.part summary{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.part .pn{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:24px;border-radius:999px;background:var(--brand);color:#fff;font-size:13px}
+.part .pb ul{padding-left:20px;margin:6px 0}
+.part .pb li{margin:4px 0}
+.simq{border-top:1px dashed var(--line);padding-top:8px;margin-top:8px}
+.simq:first-child{border-top:0;margin-top:0;padding-top:0}
+.concept .ipa{font-size:14px}
+.stabs{position:sticky;top:calc(58px + env(safe-area-inset-top));z-index:4;background:var(--bg);padding-top:6px;padding-bottom:6px}
+.split{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:16px;margin:0 -16px;padding:0 16px;scrollbar-width:none;align-items:flex-start}
+.split::-webkit-scrollbar{display:none}
+.pane{flex:0 0 100%;min-width:0;scroll-snap-align:start}
+body.wide main{max-width:1320px}
+@media (min-width:1000px){
+  .stabs{display:none}
+  .split{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);grid-template-areas:"l p" "l c";overflow:visible;margin:0;padding:0;gap:16px;align-items:start}
+  .pane.pl{grid-area:l}.pane.pp{grid-area:p}.pane.pc{grid-area:c}
+}
