@@ -1,7 +1,7 @@
 /* CMA Study – PWA học tiếng Anh kế toán và luyện thi CMA Part 1.
    Không cần build. Dữ liệu: data/public.json (nội dung tự soạn) + file Excel người dùng nhập (lưu IndexedDB). */
 'use strict';
-const APP_VERSION = '1.3.2';
+const APP_VERSION = '1.3.3';
 const TYPES = ['vocab', 'los', 'sentences', 'mcq', 'cbq', 'cfo', 'glossary', 'formulas', 'concepts', 'lessons', 'kparts'];
 const TYPE_VI = { vocab: 'Từ vựng', los: 'LOS', sentences: 'Câu song ngữ', mcq: 'Câu MCQ', cbq: 'Câu CBQ', cfo: 'Mẫu câu CFO', glossary: 'Từ điển chung', formulas: 'Công thức', concepts: 'Khái niệm', lessons: 'Bài học', kparts: 'Bài giảng slide' };
 const KEY = {
@@ -1152,7 +1152,8 @@ function kpSupplement(code) {
 function kpCount(code) { const r = kpRowsOf(code); return { st: new Set(r.filter(x => x.block === 'st').map(x => x.slide)).size, sup: r.filter(x => x.block !== 'st').length }; }
 function lessonHtmlSt(code) {
   const l = S.byLos[code], ls = S.byId.lessons?.[code] || {};
-  const cs = S.data.concepts.filter(c => c.los === code), vs = S.data.vocab.filter(v => v.los === code);
+  const vs = S.data.vocab.filter(v => v.los === code);
+  const cs = [...S.data.concepts.filter(c => c.los === code), ...ids(ls.concept_ids).map(id => S.byId.concepts?.[id]).filter(c => c && c.los !== code)];
   const fs = ls.formula_ids ? ids(ls.formula_ids) : [...new Set(S.data.mcq.filter(x => x.los === code).flatMap(x => ids(x.formula_ids)))];
   let sims = []; try { sims = ls.sim_json ? JSON.parse(ls.sim_json) : []; } catch (e) { }
   const bank = ids(ls.quiz_ids).filter(id => S.byId.mcq[id]);
