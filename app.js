@@ -1,7 +1,7 @@
 /* CMA Study – PWA học tiếng Anh kế toán và luyện thi CMA Part 1.
    Không cần build. Dữ liệu: data/public.json (nội dung tự soạn) + file Excel người dùng nhập (lưu IndexedDB). */
 'use strict';
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.5.1';
 const TYPES = ['vocab', 'los', 'sentences', 'mcq', 'cbq', 'cfo', 'glossary', 'formulas', 'concepts', 'lessons', 'kparts'];
 const TYPE_VI = { vocab: 'Từ vựng', los: 'LOS', sentences: 'Câu song ngữ', mcq: 'Câu MCQ', cbq: 'Câu CBQ', cfo: 'Mẫu câu CFO', glossary: 'Từ điển chung', formulas: 'Công thức', concepts: 'Khái niệm', lessons: 'Bài học', kparts: 'Bài giảng slide' };
 const KEY = {
@@ -1244,6 +1244,7 @@ function drawStudyQ() {
   ${picked ? `<div class="card"><h3 style="margin-top:0">${picked === x.answer ? '✓ Đúng' : `✗ Sai – đáp án ${esc(x.answer)}`}</h3><p>${esc(x.explain_vi)}</p>
     <details><summary>Giải thích tiếng Anh</summary>${splitSent(x.explain_en).map(s => `<p class="en">${spk(s)} ${sayBtns(s)}</p>`).join('')}</details>${qMeta(x)}</div>` : ''}
   ${picked && picked !== x.answer ? errCard(x) : ''}
+  ${tutorCard(x, picked || null)}
   <div class="row">${st.i > 0 ? '<button id="sPrev">‹ Câu trước</button>' : ''}<span class="spacer"></span>${picked ? `<button class="primary" id="sNext">${st.i + 1 < st.ids.length ? 'Câu tiếp ›' : 'Làm lại từ đầu'}</button>` : ''}</div>`;
   $$('.opt', box).forEach(b => b.onclick = () => { if (st.ans[x.id]) return; const k = b.dataset.k; qtNote('tries'); st.ans[x.id] = k; recordQ(x, k === x.answer, k, 'los'); viRecord(k === x.answer); drawStudyQ(); });
   $('#sPrev') && ($('#sPrev').onclick = () => { st.i--; drawStudyQ(); });
@@ -1403,6 +1404,7 @@ function drawQ() {
      ${qMeta(x)}
    </div>` : ''}
   ${show && picked !== x.answer ? errCard(x) : ''}
+  ${study ? tutorCard(x, show ? picked : null) : ''}
   ${study ? deepDive(x, opts, !!show) : ''}
   <div class="row">
     ${ex.i > 0 ? '<button id="qPrev">‹ Câu trước</button>' : ''}<span class="spacer"></span>
@@ -1750,7 +1752,7 @@ function migrateProg(p) {
 }
 
 /* Theo dõi một câu đang làm: thời gian, số lần chọn, gợi ý, Phân tích tiếng Anh, từ đã chạm */
-const QT = { id: null, since: 0, ms: {}, tries: {}, hint: {}, dd: {}, words: {} };
+const QT = { id: null, since: 0, ms: {}, tries: {}, hint: {}, dd: {}, words: {}, tutor: {} };
 function qtPause() { if (QT.id && QT.since) QT.ms[QT.id] = (QT.ms[QT.id] || 0) + (Date.now() - QT.since); QT.since = 0; }
 function qtStart(x) { qtPause(); QT.id = x.id; QT.since = document.visibilityState === 'hidden' ? 0 : Date.now(); }
 function qtStop() { qtPause(); QT.id = null; }
@@ -1781,10 +1783,10 @@ function errGuess(x, a) {
 }
 function attRecord(x, pick, mode) {
   if (QT.id === x.id) qtPause();
-  const a = { q: x.id, los: x.los, d: today(), ts: Date.now(), ok: pick === x.answer, p: pick, sec: Math.round((QT.ms[x.id] || 0) / 1000), tries: QT.tries[x.id] || 1, lv: mode === 'timed' ? 3 : viLv(), hint: !!QT.hint[x.id], dd: !!QT.dd[x.id], w: [...(QT.words[x.id] || [])], m: mode };
+  const a = { q: x.id, los: x.los, d: today(), ts: Date.now(), ok: pick === x.answer, p: pick, sec: Math.round((QT.ms[x.id] || 0) / 1000), tries: QT.tries[x.id] || 1, lv: mode === 'timed' ? 3 : viLv(), hint: !!QT.hint[x.id], dd: !!QT.dd[x.id], tut: QT.tutor[x.id] || 0, w: [...(QT.words[x.id] || [])], m: mode };
   if (!a.ok) { const [e, why] = errGuess(x, a); a.e = e; a.why = why; }
   S.prog.att.push(a); if (S.prog.att.length > ATT_MAX) S.prog.att.splice(0, S.prog.att.length - ATT_MAX);
-  for (const k of ['ms', 'tries', 'hint', 'dd', 'words']) delete QT[k][x.id];
+  for (const k of ['ms', 'tries', 'hint', 'dd', 'words', 'tutor']) delete QT[k][x.id];
   if (QT.id === x.id) QT.id = null;
   return a;
 }
@@ -1823,7 +1825,7 @@ function errCard(x) {
   return `<div class="card errbox" id="errBox"><h4 style="margin-top:0">Loại lỗi</h4>
     <p class="small">${a.ec ? `Chị đã xác nhận: <b>${ERR[a.ec][0]}</b> – ${ERR[a.ec][1]}.` : `Tool gợi ý: <b>${ERR[a.e][0]}</b> – ${ERR[a.e][1]}. ${esc(a.why || '')} Chạm để xác nhận hoặc chọn loại khác.`}</p>
     <div class="seg wrap">${ERR_KEYS.map(k => `<button type="button" data-err="${k}" data-ts="${a.ts}" class="${a.ec === k ? 'on' : ''}">${a.e === k && !a.ec ? '★ ' : ''}${ERR[k][0]}</button>`).join('')}</div>
-    <p class="small muted" style="margin:0 0 6px">${a.sec ? `Thời gian ${a.sec} giây · ` : ''}${a.w.length ? `tra ${a.w.length} từ · ` : ''}${a.dd ? 'đã mở Phân tích tiếng Anh · ' : ''}${a.hint ? 'đã mở bản dịch · ' : ''}mức tiếng Việt ${a.lv}</p>
+    <p class="small muted" style="margin:0 0 6px">${a.sec ? `Thời gian ${a.sec} giây · ` : ''}${a.w.length ? `tra ${a.w.length} từ · ` : ''}${a.dd ? 'đã mở Phân tích tiếng Anh · ' : ''}${a.tut ? `mở ${a.tut} bước gia sư · ` : ''}${a.hint ? 'đã mở bản dịch · ' : ''}mức tiếng Việt ${a.lv}</p>
     <h4>Nên ôn</h4>${reviewFor(x, e)}</div>`;
 }
 
@@ -1993,6 +1995,69 @@ function v2Note() {
   if (!p.vHad || S.settings.seenV2) return '';
   return `<div class="note" id="v2n">Tool đã nâng cấp dữ liệu tiến độ (bản 1.5.0): số lượt, tỷ lệ đúng, bài đã học và hộp thẻ từ giữ nguyên. Lịch sử chi tiết từng lượt, phút học và loại lỗi bắt đầu ghi từ ngày ${esc(p.vAt)}. Chị nên <a href="#/data">sao lưu</a> một bản. <button type="button" class="say" id="v2ok">Đã hiểu</button></div>`;
 }
+
+/* ---------- GIAI ĐOẠN D: Gia sư 6 bước (offline, miễn phí) ----------
+   Tự dựng từ dữ liệu sẵn có của câu: đề, bản dịch, khái niệm, công thức, bài LOS, lời giải.
+   Trước khi chị trả lời: bước 1–4 mở đầy đủ, bước 5–6 chỉ có hướng làm, không lộ đáp án.
+   Sau khi trả lời: bước 5 hiện lời giải, bước 6 đối chiếu đáp án và loại lỗi. */
+const TUT_STEPS = ['Hiểu đề', 'Dữ kiện', 'Kiến thức', 'Công thức', 'Tính toán', 'Kiểm tra'];
+const TUT = { id: null, n: 0, x: null, pick: null };
+function tutLv() { return S.settings.tutorLv === 'long' ? 'long' : 'short'; }
+function tutData(x) {
+  const q = String(x.question || ''), calc = isCalc(x);
+  const parts = q.split(/\n+/).flatMap(l => /\S {3,}\S/.test(l) ? [l] : splitSent(l)).map(s => s.trim()).filter(Boolean);
+  const facts = parts.filter(s => /\d/.test(s) && s !== mainQuestion(q)).slice(0, 10);
+  const cs = ids(x.concept_ids).map(id => S.byId.concepts?.[id]).filter(Boolean);
+  const fs = ids(x.formula_ids).map(id => S.byId.formulas?.[id]).filter(Boolean);
+  const terms = findTerms(q + '\n' + ['A', 'B', 'C', 'D'].map(k => x[k] || '').join('\n')).slice(0, 8);
+  const traps = TRAPS.filter(([re]) => re.test(q)).map(([, n]) => n);
+  return { q, calc, facts, cs, fs, terms, traps, ls: S.byId.lessons?.[x.los] || {} };
+}
+function tutStep(i, x, D, ans, lg) {
+  const vi = viLv() < 3 || ans;
+  const mq = mainQuestion(D.q), mqVi = hasVi(x) ? mainQuestion(x.question_vi) : '';
+  if (i === 0) return `<p class="en">${spk(mq, true)}</p>${vi && mqVi ? `<p class="vi">${esc(mqVi)}</p>` : ''}
+    <p class="small">Dạng câu: <b>${D.calc ? 'Tính toán' : 'Lý thuyết'}</b> · LOS ${esc(shortLos(x.los))} – ${esc(S.byLos[x.los]?.title_vi || '')}</p>
+    ${D.traps.length ? `<ul class="small traps">${D.traps.slice(0, lg ? 4 : 2).map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}`;
+  if (i === 1) return (D.facts.length ? `<ul class="small">${D.facts.map(s => `<li class="en${/\S {3,}\S/.test(s) ? ' mono' : ''}">${esc(s)}</li>`).join('')}</ul>` : '<p class="small">Đề không có số liệu; dữ kiện chính là các thuật ngữ dưới đây.</p>')
+    + (D.terms.length ? `<div class="chips">${D.terms.slice(0, lg ? 8 : 4).map(v => `<span class="chip"><b>${esc(v.term)}</b> ${esc(v.vi_meaning)}</span>`).join('')}</div>` : '');
+  if (i === 2) return (D.cs.length ? D.cs.slice(0, lg ? 4 : 2).map(c => `<p class="small"><a href="#/concept/${encodeURIComponent(c.id)}"><b>${esc(c.term_en)}</b></a> – ${esc(c.term_vi)}: ${esc(lg ? c.explain_vi : splitSent(c.explain_vi)[0] || c.explain_vi)}${lg && c.example_vi ? `<br><i>Ví dụ: ${esc(c.example_vi)}</i>` : ''}${lg && c.gaap_ifrs ? `<br><small class="muted">US GAAP – IFRS: ${esc(c.gaap_ifrs)}</small>` : ''}</p>`).join('')
+    : `<p class="small">Ôn lại bài LOS ${esc(shortLos(x.los))}.</p>`)
+    + (lg && D.ls.takeaways_vi ? `<p class="small"><b>Ghi nhớ của bài:</b> ${esc(String(D.ls.takeaways_vi).split('\n').slice(0, 2).join(' '))}</p>` : '')
+    + `<a class="pill" href="#/study/${encodeURIComponent(x.los)}">📖 Bài LOS ${esc(shortLos(x.los))}</a>`;
+  if (i === 3) return D.fs.length ? D.fs.map(f => `<p class="small"><b>${esc(f.name_vi)}</b><br><span class="en mono-s">${esc(f.expr_en)}</span><br>${esc(f.expr_vi)}</p>`).join('') + (lg ? D.cs.filter(c => c.example_vi && ids(c.formula_ids).some(id => D.fs.some(f => f.id === id))).slice(0, 1).map(c => `<p class="small"><i>Ví dụ số (AI tự đặt): ${esc(c.example_vi)}</i></p>`).join('') : '')
+    : `<p class="small">${D.calc ? 'Câu tính toán chưa gắn công thức trong tool; dựa vào lời giải sau khi trả lời.' : 'Câu lý thuyết, không cần công thức. Dùng định nghĩa ở bước 3 để loại phương án.'}</p>`;
+  if (i === 4) {
+    if (!ans) return D.calc
+      ? `<p class="small">Hướng làm: lấy dữ kiện ở bước 2 thay vào công thức ở bước 4. Tính từng bước, ghi rõ đơn vị, rồi so kết quả với 4 phương án.${lg ? ' Nếu kết quả không trùng phương án nào, xem lại: dùng nhầm số đầu kỳ/cuối kỳ, quên trừ giá trị thanh lý, nhầm trước thuế/sau thuế, nhầm năm được hỏi.' : ''}</p>`
+      : `<p class="small">Hướng làm: xét từng phương án, đối chiếu với định nghĩa ở bước 3 và ghi Đúng/Sai bên cạnh. Loại các phương án sai rõ trước.${lg ? ' Với câu "phù hợp nhất", có thể nhiều phương án đúng một phần; chọn phương án đầy đủ và trực tiếp nhất.' : ''}</p>`;
+    const ss = splitSent(x.explain_vi || '');
+    return `<p class="small">${esc(lg ? x.explain_vi : ss.slice(0, 2).join(' '))}</p>${lg && x.explain_en ? `<details><summary class="small">Lời giải tiếng Anh</summary>${splitSent(x.explain_en).map(s => `<p class="en small">${spk(s)}</p>`).join('')}</details>` : ''}`;
+  }
+  if (!ans) return `<ul class="small"><li>Đọc lại câu hỏi chính: đề hỏi đúng đại lượng nào, năm nào, đơn vị gì?</li><li>Có NOT, EXCEPT, LEAST không?</li><li>Đã đọc hết 4 phương án chưa?</li>${D.calc ? '<li>Ước lượng nhanh: kết quả lớn hay nhỏ hơn số gốc, có hợp lý không?</li>' : ''}</ul>`;
+  const okA = ans === x.answer, a = lastAtt(x.id);
+  return `<p class="small">Chị chọn <b>${esc(ans)}</b>, đáp án <b>${esc(x.answer)}</b>: ${okA ? '<span class="pill ok">Đúng</span>' : `<span class="pill bad">Sai</span> ${errPill(a)}`}</p>
+    ${!okA && D.calc && numOf(x[ans]) !== null && numOf(x[x.answer]) ? `<p class="small">Chênh lệch so với đáp án đúng: ${Math.round(100 * (numOf(x[ans]) - numOf(x[x.answer])) / numOf(x[x.answer]))}%.</p>` : ''}
+    ${!okA ? `<a class="pill" href="#/exam/mcq?sim=${encodeURIComponent(x.id)}">🔁 Câu tương tự</a>` : ''}`;
+}
+function tutorCard(x, ans) {
+  if (TUT.id !== x.id) { TUT.id = x.id; TUT.n = 0; }
+  TUT.x = x; TUT.pick = ans || null;
+  const lg = tutLv() === 'long', D = tutData(x);
+  const shown = ans ? Math.max(TUT.n, 0) : TUT.n;
+  return `<div class="card tutor" id="tutor"><div class="row"><b style="flex:1">🧑‍🏫 Gia sư 6 bước</b>
+      <div class="seg wrap" style="margin:0">${[['short', 'Ngắn'], ['long', 'Chi tiết']].map(([k, n]) => `<button type="button" data-tutlv="${k}" class="${tutLv() === k ? 'on' : ''}">${n}</button>`).join('')}</div></div>
+    <p class="small muted" style="margin:4px 0">${ans ? 'Đã trả lời: bước 5 có lời giải, bước 6 đối chiếu đáp án.' : 'Mở từng bước khi cần. Trước khi chị trả lời, gia sư không cho biết đáp án.'}</p>
+    ${TUT_STEPS.slice(0, shown).map((t, i) => `<div class="tstep"><div class="small"><span class="pill">${i + 1}</span> <b>${i === 4 && !D.calc ? 'Lập luận' : t}</b></div>${tutStep(i, x, D, ans, lg)}</div>`).join('')}
+    <div class="row">${shown < 6 ? `<button type="button" class="${shown ? '' : 'primary'}" data-tut="next">${shown ? `Mở bước ${shown + 1}: ${shown === 4 && !D.calc ? 'Lập luận' : TUT_STEPS[shown]} ›` : 'Bắt đầu: bước 1 – Hiểu đề ›'}</button>` : ''}${shown && shown < 6 ? '<button type="button" data-tut="all">Mở hết</button>' : ''}</div>
+    <div class="small muted">${aiPill('Gia sư tự dựng từ dữ liệu câu, khái niệm, công thức – cần xác minh')}</div></div>`;
+}
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-tut],[data-tutlv]'); if (!t || !TUT.x) return;
+  if (t.dataset.tutlv) { S.settings.tutorLv = t.dataset.tutlv; saveSettings(); }
+  else { const before = TUT.n; TUT.n = t.dataset.tut === 'all' ? 6 : Math.min(6, TUT.n + 1); if (!TUT.pick) for (let i = before; i < TUT.n; i++) qtNote('tutor'); }
+  const box = $('#tutor'); if (box) box.outerHTML = tutorCard(TUT.x, TUT.pick);
+});
 
 /* ---------- global events ---------- */
 document.addEventListener('click', e => {

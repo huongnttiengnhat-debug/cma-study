@@ -167,3 +167,7 @@ body.wide main{max-width:1320px}
 .ktab th,.ktab td{border:1px solid var(--line);padding:4px 6px;vertical-align:top;text-align:left}
 .ktab td.ksay{white-space:nowrap;border:0}
 .kans{border:1px dashed var(--line);border-radius:10px;padding:6px 10px}
+.tstep{border-left:3px solid var(--brand-2);padding:4px 0 4px 10px;margin:10px 0}
+.tstep p{margin:4px 0}
+.tstep ul{margin:4px 0;padding-left:18px}
+.tutor .pill{white-space:normal;max-width:100%}
