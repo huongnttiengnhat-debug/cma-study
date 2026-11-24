@@ -1,5 +1,5 @@
 /* Service worker: lưu toàn bộ app để chạy offline. Đổi VERSION mỗi lần cập nhật. */
-const VERSION = 'cma-v1.3.4';
+const VERSION = 'cma-v1.3.5';
 const SHELL = [
   './', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest',
   'lib/xlsx.mini.min.js', 'data/public.json', 'data/CMA_data_public.xlsx',
