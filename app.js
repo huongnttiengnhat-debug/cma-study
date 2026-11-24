@@ -1,7 +1,7 @@
 /* CMA Study – PWA học tiếng Anh kế toán và luyện thi CMA Part 1.
    Không cần build. Dữ liệu: data/public.json (nội dung tự soạn) + file Excel người dùng nhập (lưu IndexedDB). */
 'use strict';
-const APP_VERSION = '1.3.7';
+const APP_VERSION = '1.3.8';
 const TYPES = ['vocab', 'los', 'sentences', 'mcq', 'cbq', 'cfo', 'glossary', 'formulas', 'concepts', 'lessons', 'kparts'];
 const TYPE_VI = { vocab: 'Từ vựng', los: 'LOS', sentences: 'Câu song ngữ', mcq: 'Câu MCQ', cbq: 'Câu CBQ', cfo: 'Mẫu câu CFO', glossary: 'Từ điển chung', formulas: 'Công thức', concepts: 'Khái niệm', lessons: 'Bài học', kparts: 'Bài giảng slide' };
 const KEY = {
@@ -1163,7 +1163,7 @@ function lessonHtmlSt(code) {
   const P = [
     ['Mục tiêu và tóm tắt LOS', bullets(ls.objectives_vi) + `<h4>LOS (tiếng Anh) ${aiPill('AI tóm tắt – cần xác minh')}</h4>` + splitSent(l.summary_en).map(s => `<p class="en">${spk(s)} ${sayBtns(s)}</p>`).join('') + kpVi(l.summary_vi), T],
     ['Bài giảng Smart Train (song ngữ từng câu)', viCtl() + kpLecture(code), T],
-    ['Công thức', fs.map(f => fmlBox(f)).join(''), T],
+    ['Công thức', fs.length ? fs.map(f => fmlBox(f)).join('') : '<p class="muted">LOS này không có công thức tính riêng; trọng tâm là khái niệm, phân loại và cách đọc báo cáo.</p>', T],
     ['Ví dụ số và bút toán', ls.journal_vi ? paras(ls.journal_vi) + `<div class="small">${aiPill('Diễn giải của AI – số tự đặt, cần xác minh')}</div>` : '', T],
     ['Bổ sung theo IMA và ghi chú lệch', kpSupplement(code), T],
     ['Khái niệm và từ vựng chính', (cs.length ? `<div class="chips">${cs.map(c => conceptChip(c.id)).join('')}</div>` : '') + (vs.length ? `<ul class="list">${vs.slice(0, 12).map(wordRow).join('')}</ul>` : ''), T],
