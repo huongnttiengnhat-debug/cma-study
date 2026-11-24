@@ -1,7 +1,7 @@
 /* CMA Study – PWA học tiếng Anh kế toán và luyện thi CMA Part 1.
    Không cần build. Dữ liệu: data/public.json (nội dung tự soạn) + file Excel người dùng nhập (lưu IndexedDB). */
 'use strict';
-const APP_VERSION = '1.4.4';
+const APP_VERSION = '1.4.5';
 const TYPES = ['vocab', 'los', 'sentences', 'mcq', 'cbq', 'cfo', 'glossary', 'formulas', 'concepts', 'lessons', 'kparts'];
 const TYPE_VI = { vocab: 'Từ vựng', los: 'LOS', sentences: 'Câu song ngữ', mcq: 'Câu MCQ', cbq: 'Câu CBQ', cfo: 'Mẫu câu CFO', glossary: 'Từ điển chung', formulas: 'Công thức', concepts: 'Khái niệm', lessons: 'Bài học', kparts: 'Bài giảng slide' };
 const KEY = {
@@ -1087,7 +1087,7 @@ function lessonHtml(code) {
   let sims = []; try { sims = ls?.sim_json ? JSON.parse(ls.sim_json) : []; } catch (e) { }
   const bank = ls ? ids(ls.quiz_ids).filter(id => S.byId.mcq[id]) : [];
   const T = 'Trọng tâm thi', X = 'Mở rộng CFO';
-  const head = `<div class="card"><div class="row"><b>${esc(shortLos(code))}</b>${ls ? `<span class="pill ok">${esc(ls.focus || T)}</span>` : ''}${coverPill(l.coverage)}${ls ? srcPill(ls) : ''}${ls?.review_status ? `<span class="pill warn">${esc(ls.review_status)}</span>` : ''}</div>
+  const head = `<div class="card"><div class="row"><b>${esc(shortLos(code))}</b>${ls ? `<span class="pill ok">${esc(ls.focus || T)}</span>` : ''}${coverPill(l.coverage)}${ls ? srcPill(ls) : ''}${ls?.review_status ? `<span class="pill ${/^Đã duyệt/.test(ls.review_status) ? 'ok' : 'warn'}">${esc(ls.review_status)}</span>` : ''}</div>
     <h2 class="en" style="margin:8px 0 2px">${spk(l.title_en)} ${sayBtns(l.title_en)}</h2><p class="vi" style="margin:0">${esc(l.title_vi)}</p></div>`;
   const body = [
     part(1, 'Mục tiêu học tập', ls ? bullets(ls.objectives_vi) : '', T),
@@ -1158,7 +1158,7 @@ function lessonHtmlSt(code) {
   let sims = []; try { sims = ls.sim_json ? JSON.parse(ls.sim_json) : []; } catch (e) { }
   const bank = ids(ls.quiz_ids).filter(id => S.byId.mcq[id]);
   const T = 'Trọng tâm thi', X = 'Mở rộng CFO';
-  const head = `<div class="card"><div class="row"><b>${esc(shortLos(code))}</b><span class="pill ok">${esc(ls.focus || T)}</span>${coverPill(l.coverage)}${ls.los ? srcPill(ls) : ''}${ls.review_status ? `<span class="pill warn">${esc(ls.review_status)}</span>` : ''}</div>
+  const head = `<div class="card"><div class="row"><b>${esc(shortLos(code))}</b><span class="pill ok">${esc(ls.focus || T)}</span>${coverPill(l.coverage)}${ls.los ? srcPill(ls) : ''}${ls.review_status ? `<span class="pill ${/^Đã duyệt/.test(ls.review_status) ? 'ok' : 'warn'}">${esc(ls.review_status)}</span>` : ''}</div>
     <h2 class="en" style="margin:8px 0 2px">${spk(l.title_en)} ${sayBtns(l.title_en)}</h2><p class="vi" style="margin:0">${esc(l.title_vi)}</p></div>`;
   const P = [
     ['Mục tiêu và tóm tắt LOS', bullets(ls.objectives_vi) + `<h4>LOS (tiếng Anh) ${aiPill('AI tóm tắt – cần xác minh')}</h4>` + splitSent(l.summary_en).map(s => `<p class="en">${spk(s)} ${sayBtns(s)}</p>`).join('') + kpVi(l.summary_vi), T],
